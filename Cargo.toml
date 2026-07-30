@@ -1,0 +1,35 @@
+[package]
+name = "polaris-vbios"
+version = "1.0.0"
+edition = "2024"
+description = "CLI utility for reading, dumping, comparing and analyzing AMD Polaris (RX 400/500) VBIOS ROMs."
+authors = ["yieskoW <yiesko@proton.me>"]
+license = "GPL-3.0"
+readme = "README.md"
+repository = "https://github.com/yiesko/polaris-vbios"
+keywords = ["amd", "polaris", "vbios", "gpu", "firmware"]
+categories = ["command-line-utilities", "hardware-support"]
+
+[lib]
+name = "polaris_vbios"
+path = "src/lib.rs"
+
+[[bin]]
+name = "polaris-vbios"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+base64 = "0.23.0"
+clap = { version = "4", features = ["derive"] }
+csv = "1"
+crossterm = "0.29.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+strip-ansi-escapes = "0.2"
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+panic = "abort"
