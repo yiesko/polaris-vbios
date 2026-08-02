@@ -7,7 +7,7 @@ use crossterm::terminal::{self, ClearType};
 use crossterm::{cursor, execute, queue, style};
 
 use crate::compare::render_compare;
-use crate::render::color::{Palette, pad, truncate, visible_truncate};
+use crate::render::color::{Palette, pad, truncate, visible_truncate, wrap_ansi};
 use crate::render::sections::Section;
 use crate::render::text::render_section;
 use crate::rom::{self, types::ParsedRom};
@@ -187,8 +187,23 @@ fn event_loop(out: &mut impl Write, state: &mut State) -> Result<()> {
 fn draw(out: &mut impl Write, state: &State, pal: &Palette) -> Result<()> {
     let (cols, rows) = terminal::size()?;
     let (cols, rows) = (cols as usize, rows as usize);
-    let left_w = (cols / 4).clamp(18, 34);
+    // Left column: full section name (no truncation) when the terminal
+    // allows it; never smaller than a readable size.
+    let max_label = Section::ALL
+        .iter()
+        .map(|s| s.label().chars().count())
+        .max()
+        .unwrap_or(20);
+    let left_w = (max_label + 3).clamp(18, cols.saturating_sub(2).max(18) / 2);
     let body_rows = rows.saturating_sub(3);
+    let content_w = cols.saturating_sub(left_w + 2);
+    // Wrap the content pane into fixed-width lines (auto line-wrap, so
+    // long tables fit without shrinking the terminal / Ctrl+minus).
+    let wrapped: Vec<String> = state
+        .content_lines(pal)
+        .iter()
+        .flat_map(|l| wrap_ansi(l, content_w))
+        .collect();
 
     queue!(out, terminal::Clear(ClearType::All), cursor::MoveTo(0, 0))?;
 
@@ -206,7 +221,7 @@ fn draw(out: &mut impl Write, state: &State, pal: &Palette) -> Result<()> {
     if state.show_help {
         draw_help(out, body_rows, cols, pal)?;
     } else {
-        draw_body(out, state, pal, body_rows, cols, left_w)?;
+        draw_body(out, state, pal, body_rows, left_w, &wrapped)?;
     }
 
     queue!(out, cursor::MoveTo(0, rows.saturating_sub(1) as u16))?;
@@ -216,7 +231,7 @@ fn draw(out: &mut impl Write, state: &State, pal: &Palette) -> Result<()> {
         format!(" {} ", msg)
     } else {
         let scroll_info = {
-            let total = state.content_lines(pal).len();
+            let total = wrapped.len();
             if total > body_rows {
                 format!(
                     " · lines {}–{}/{}",
@@ -251,26 +266,25 @@ fn draw_body(
     state: &State,
     pal: &Palette,
     body_rows: usize,
-    cols: usize,
     left_w: usize,
+    wrapped: &[String],
 ) -> Result<()> {
-    let content_lines = state.content_lines(pal);
-    let visible_content: Vec<&String> = content_lines
-        .iter()
-        .skip(state.scroll)
-        .take(body_rows)
-        .collect();
-    let content_w = cols.saturating_sub(left_w + 2);
+    let visible_content: Vec<&String> = wrapped.iter().skip(state.scroll).take(body_rows).collect();
 
     for row in 0..body_rows {
         queue!(out, cursor::MoveTo(0, (row + 2) as u16))?;
 
-        // left column: section list
+        // left column: full section name, never truncated
         if row < Section::ALL.len() {
             let sec = Section::ALL[row];
             let marker = if row == state.selected { "› " } else { "  " };
             let raw = format!("{marker}{}", sec.label());
-            let padded = pad(&truncate(&raw, left_w.saturating_sub(1)), left_w);
+            let padded = pad(&raw, left_w);
+            let padded = if padded.chars().count() > left_w {
+                truncate(&padded, left_w)
+            } else {
+                padded
+            };
             let printed = if row == state.selected {
                 pal.value(&padded)
             } else {
@@ -284,7 +298,7 @@ fn draw_body(
         queue!(out, style::Print(pal.label("│ ")))?;
 
         if let Some(line) = visible_content.get(row) {
-            queue!(out, style::Print(visible_truncate(line, content_w)))?;
+            queue!(out, style::Print(line))?;
         }
     }
     Ok(())
