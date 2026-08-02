@@ -118,7 +118,7 @@ pub fn run(cmd: Command) -> ExitCode {
             pp_tdp,
             hex,
         ),
-        Command::ListSections => unreachable!(),
+        Command::ListSections | Command::Completions { .. } | Command::Man => unreachable!(),
     }
 }
 
@@ -236,4 +236,34 @@ pub fn parse_u32_hex(s: &str, what: &str) -> Result<u32, String> {
         .unwrap_or(s);
     u32::from_str_radix(digits, 16)
         .map_err(|_| format!("cannot parse '{s}' as a hex value for {what}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hex_bytes_accept_space_and_comma_separators() {
+        assert_eq!(
+            parse_hex_bytes("00 FF AA", "--hex").unwrap(),
+            [0x00, 0xFF, 0xAA]
+        );
+        assert_eq!(
+            parse_hex_bytes("00,FF,AA", "--hex").unwrap(),
+            [0x00, 0xFF, 0xAA]
+        );
+    }
+
+    #[test]
+    fn hex_bytes_accept_mixed_separators_and_0x_prefix() {
+        assert_eq!(
+            parse_hex_bytes("0x0A FF,0xBB", "--hex").unwrap(),
+            [0x0A, 0xFF, 0xBB]
+        );
+    }
+
+    #[test]
+    fn hex_bytes_rejects_non_hex_token() {
+        assert!(parse_hex_bytes("ZZ", "--hex").is_err());
+    }
 }

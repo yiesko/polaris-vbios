@@ -24,6 +24,14 @@ pub fn run() -> ExitCode {
             cli::print_list_sections();
             ExitCode::SUCCESS
         }
+        Ok(Command::Completions { shell }) => {
+            cli::print_completions(shell);
+            ExitCode::SUCCESS
+        }
+        Ok(Command::Man) => {
+            cli::print_man();
+            ExitCode::SUCCESS
+        }
         Ok(cmd) => cmd::run(cmd),
         Err(msg) => {
             eprintln!("{msg}");

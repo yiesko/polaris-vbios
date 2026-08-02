@@ -71,6 +71,8 @@ polaris-vbios tui ~/GPU/RX570_original.rom ~/GPU/Gigabyte.RX580.8192.rom
 | `diff-disasm` | Diff of the ATOM bytecode disassembly of two ROMs |
 | `tui` | Interactive terminal UI |
 | `list-sections` | List all available section keys |
+| `completions` | Print a shell completion script (bash, elvish, fish, powershell, zsh) |
+| `man` | Print a roff man page |
 | `help` / `-h` | Show help for any command |
 
 ## Global options
@@ -105,6 +107,10 @@ RX570_original.rom            [Sapphire / PC Partner] Polaris/Tonga/Fiji  8192MB
 XFX.RX480.4096.160805.rom     [XFX]                   Polaris/Tonga/Fiji  4096MB GDDR5 (Samsung)   boost 1266/2000MHz  TDP 150W  ✓
 Gigabyte.RX580.8192.rom       [Gigabyte]              Polaris/Tonga/Fiji  8192MB GDDR5 (Samsung)   boost 1360/2000MHz  TDP 150W  ✓
 ```
+
+The ROM filename column is fixed at 32 characters: longer names are
+truncated (with `...`) and shorter ones are padded, so every row's
+`[vendor]` column stays aligned.
 
 The `--no-color` flag disables ANSI output (useful for piping):
 
@@ -310,7 +316,8 @@ polaris-vbios patch rom.rom --out new.rom --retag-strap 1625 1650
 # PowerPlay: SCLK DPM level 2 to 1400 MHz + TDP to 135 W
 polaris-vbios patch rom.rom --out new.rom --pp-sclk 2 1400 --pp-tdp 135
 
-# VDDC LUT entry 5 to 950 mV; raw hex write
+# VDDC LUT entry 5 to 950 mV; raw hex write (bytes separated by
+# spaces and/or commas - "AA BB CC", "AA,BB,CC" or mixed are all fine)
 polaris-vbios patch rom.rom --out new.rom --pp-vddc 5 950 --hex 0x1234 "00 FF"
 
 # Repair the legacy checksum of a modified ROM
@@ -432,6 +439,16 @@ Formats: `0xHEX=NAME`, `DECIMAL=NAME` or `HEX=NAME`.
 polaris-vbios dump ~/GPU/RX570_original.rom --sections straps --reg-names ~/annotations.txt
 polaris-vbios compare ~/GPU/RX570_original.rom ~/GPU/Gigabyte.RX580.8192.1737850666.rom \
   --sections straps --reg-names ~/annotations.txt
+```
+
+The same annotation file also decorates ATOM bytecode disassembly: pass
+`--reg-names` to `disasm` or `diff-disasm` and register arguments in the
+decoded instructions are shown as `REG[0x...] (name)` where a name is
+defined:
+
+```sh
+polaris-vbios disasm ~/GPU/RX570_original.rom --reg-names ~/annotations.txt
+polaris-vbios diff-disasm a.rom b.rom --reg-names ~/annotations.txt
 ```
 
 Annotated names are explicitly marked as `"user annotation, not confirmed

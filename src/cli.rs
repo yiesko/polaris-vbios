@@ -169,14 +169,24 @@ pub enum Command {
         #[arg(long, value_name = "WATTS")]
         pp_tdp: Vec<String>,
         /// Write raw bytes: <offset> <bytes> (bytes as a single hex
-        /// string, e.g. "00 FF" or "00,FF"; repeatable). Refused for
-        /// boot/BIOS-data/table-header layout areas; unchecksummed or
-        /// structure-overlapping writes are warned
+        /// string, repeatable). Separate the byte pairs with spaces
+        /// and/or commas - both are accepted, e.g. "0A FF" or "0A,FF".
+        /// Refused for boot/BIOS-data/table-header layout areas;
+        /// unchecksummed or structure-overlapping writes are warned
         #[arg(long, num_args = 2, value_names = ["OFFSET", "BYTES"])]
         hex: Vec<String>,
     },
     /// List available sections
     ListSections,
+    /// Print a shell completion script for your shell and exit
+    Completions {
+        /// Which shell to generate completions for:
+        /// bash, elvish, fish, powershell or zsh
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
+    },
+    /// Print a roff man page and exit
+    Man,
 }
 
 pub fn parse() -> Result<Command, String> {
@@ -203,6 +213,23 @@ pub fn parse() -> Result<Command, String> {
             _ => Err(e.to_string()),
         },
     }
+}
+
+/// Emits a shell completion script for `shell` to stdout, then exits.
+pub fn print_completions(shell: clap_complete::Shell) {
+    let name = env!("CARGO_PKG_NAME");
+    let mut cmd = Cli::command();
+    clap_complete::generate(shell, &mut cmd, name, &mut std::io::stdout());
+    std::process::exit(0);
+}
+
+/// Emits a roff man page for the CLI to stdout, then exits.
+pub fn print_man() {
+    let cmd = Cli::command();
+    let man = clap_mangen::Man::new(cmd);
+    let mut out = std::io::stdout();
+    man.render(&mut out).ok();
+    std::process::exit(0);
 }
 
 pub fn print_list_sections() {
@@ -235,6 +262,8 @@ impl Command {
             Command::Extract { .. } => true,
             Command::Patch { .. } => false,
             Command::ListSections => true,
+            Command::Completions { .. } => true,
+            Command::Man => true,
         }
     }
 

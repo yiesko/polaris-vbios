@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use crate::render::color::{Palette, truncate};
+use crate::render::color::{Palette, fit, truncate};
 use crate::{cmd, rom};
 
 pub fn run(roms: Vec<PathBuf>, color: bool) -> ExitCode {
@@ -122,10 +122,18 @@ fn identify_line(rom: &rom::types::ParsedRom, pal: &Palette) -> String {
     };
 
     format!(
-        "{:<32} [{}] {family:<20} {vram_str:<28} boost {boost_sclk:.0}/{boost_mclk:.0}MHz  TDP {tdp}W{bootup_col}  {status}",
-        pal.value(&rom.file_name),
+        "{} [{}] {family:<20} {vram_str:<28} boost {boost_sclk:.0}/{boost_mclk:.0}MHz  TDP {tdp}W{bootup_col}  {status}",
+        file_column(&rom.file_name, pal),
         vendor,
     )
+}
+
+/// The filename column, width 32. Padding/truncation always happens on
+/// PLAIN text first - applying color BEFORE alignment would make the
+/// ANSI escape bytes count toward the field width and push every
+/// following column out of line.
+fn file_column(name: &str, pal: &Palette) -> String {
+    pal.value(&fit(name, 32))
 }
 
 fn guess_memory_vendor(part_number: &str) -> Option<&'static str> {
@@ -138,5 +146,57 @@ fn guess_memory_vendor(part_number: &str) -> Option<&'static str> {
         Some("Elpida/Micron")
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Visible length, ignoring ANSI escape sequences.
+    fn visible(s: &str) -> usize {
+        let mut in_esc = false;
+        let mut n = 0;
+        for c in s.chars() {
+            if in_esc {
+                if c.is_ascii_alphabetic() {
+                    in_esc = false;
+                }
+                continue;
+            }
+            if c == '\u{1b}' {
+                in_esc = true;
+            } else {
+                n += 1;
+            }
+        }
+        n
+    }
+
+    #[test]
+    fn long_filename_truncates_at_exactly_32_columns() {
+        let pal = Palette::new(false);
+        let name = "XFX GTR-S RX 580 Black Limited Edition OC Ultra Premium.rom";
+        let col = file_column(name, &pal);
+        assert_eq!(visible(&col), 32);
+    }
+
+    #[test]
+    fn short_filename_pads_out_to_32_columns() {
+        let pal = Palette::new(false);
+        let col = file_column("RX570_original.rom", &pal);
+        assert_eq!(visible(&col), 32);
+        assert!(col.starts_with("RX570_original.rom"));
+    }
+
+    #[test]
+    fn colored_filename_keeps_visible_width_32() {
+        let pal = Palette::new(true);
+        let col = file_column("very_long_vendor_product_model_name.rom", &pal);
+        assert_eq!(
+            visible(&col),
+            32,
+            "ANSI bytes must not count toward the width"
+        );
     }
 }
