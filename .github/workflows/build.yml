@@ -25,6 +25,11 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Lint (clippy, warnings denied)
+        run: cargo clippy --all-targets -- -D warnings
 
       - run: cargo build --release
 
