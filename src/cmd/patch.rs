@@ -285,15 +285,10 @@ pub fn run(
     }
 }
 
-/// True when both paths refer to the same file: canonical paths, or the
-/// same (device, inode) - which catches hard links to the source that
-/// `canonicalize` alone would miss.
+/// True when both paths refer to the same file: same underlying file
+/// object (catches hard links) or equal canonical paths.
 fn same_file(a: &Path, b: &Path) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    if let (Ok(ma), Ok(mb)) = (fs::metadata(a), fs::metadata(b))
-        && ma.dev() == mb.dev()
-        && ma.ino() == mb.ino()
-    {
+    if same_file::is_same_file(a, b).unwrap_or(false) {
         return true;
     }
     match (fs::canonicalize(a), fs::canonicalize(b)) {
