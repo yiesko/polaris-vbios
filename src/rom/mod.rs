@@ -191,24 +191,3 @@ pub fn parse_bytes(data: &[u8], file_name: &str) -> Result<ParsedRom> {
     rom.warnings = validate::validate(&rom);
     Ok(rom)
 }
-
-#[cfg(test)]
-pub(crate) mod test_support {
-    use std::path::PathBuf;
-
-    /// Collects the `.rom` files under `samples/BIOS/<family>/`, or
-    /// `None` when the directory is absent (tests skip in that case).
-    /// Shared by the locate and validate sample sweeps.
-    pub fn sample_roms() -> Option<Vec<PathBuf>> {
-        let dir = std::fs::read_dir("samples/BIOS").ok()?;
-        Some(
-            dir.filter_map(|e| e.ok())
-                .flat_map(|e| std::fs::read_dir(e.path()).ok())
-                .flatten()
-                .filter_map(|e| e.ok())
-                .map(|e| e.path())
-                .filter(|p| p.extension().is_some_and(|x| x == "rom"))
-                .collect(),
-        )
-    }
-}

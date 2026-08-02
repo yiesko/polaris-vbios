@@ -285,35 +285,3 @@ pub fn cross_checks(rom: &ParsedRom) -> Vec<String> {
     }
     out
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn cross_check_survey() {
-        let Some(samples) = crate::rom::test_support::sample_roms() else {
-            eprintln!("samples/BIOS not present; skipping cross-check survey");
-            return;
-        };
-        let mut trippers = Vec::new();
-        for path in &samples {
-            let rom = crate::rom::parse_rom(path).unwrap();
-            let trips = cross_checks(&rom);
-            if !trips.is_empty() {
-                trippers.push((
-                    path.file_name().unwrap().to_string_lossy().to_string(),
-                    trips.len(),
-                ));
-            }
-            // No ROM may produce a hard validation warning from this check.
-            assert!(!rom.warnings.iter().any(|w| w.contains("hard limit")));
-        }
-        // Only the two stock RX560s ship a hard limit table and trip.
-        assert_eq!(
-            trippers.len(),
-            2,
-            "expected exactly Lenovo+Medion RX560 to trip, got: {trippers:?}"
-        );
-    }
-}

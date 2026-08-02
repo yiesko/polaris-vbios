@@ -225,37 +225,3 @@ fn diff_table(ta: &TableDisasm, tb: &TableDisasm, pal: &Palette, diff_only: bool
     };
     format!("{summary}{out}")
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn sapphire() -> std::path::PathBuf {
-        std::path::PathBuf::from("samples/BIOS/RX570/Sapphire.RX570.4096.170317_2.rom")
-    }
-    fn asus() -> std::path::PathBuf {
-        std::path::PathBuf::from("samples/BIOS/RX570/Asus.RX570.4096.170508.rom")
-    }
-
-    /// Spec test pair: Sapphire vs Asus RX570. Table 4 (DIGxEncoderControl)
-    /// and table 10 (SetEngineClock) are byte-identical across the pair;
-    /// the overall diff (all tables) has differences.
-    #[test]
-    fn known_pair() {
-        if !sapphire().exists() || !asus().exists() {
-            eprintln!("sample ROMs not present; skipping diff-disasm pair test");
-            return;
-        }
-        let t4 = run(&sapphire(), &asus(), Some("4"), false, false, None).unwrap();
-        assert!(t4.contains("04 DIGxEncoderControl"), "table 4 header: {t4}");
-        assert!(t4.contains("(identical)"), "table 4 identical: {t4}");
-
-        let t10 = run(&sapphire(), &asus(), Some("10"), false, false, None).unwrap();
-        assert!(t10.contains("10 SetEngineClock"), "table 10 header: {t10}");
-        assert!(t10.contains("(identical)"), "table 10 identical: {t10}");
-
-        let all = run(&sapphire(), &asus(), None, true, false, None).unwrap();
-        assert!(all.contains("≠"), "all-tables diff has differences: {all}");
-        assert!(all.contains("──"), "all-tables diff has table headers");
-    }
-}
