@@ -17,6 +17,17 @@ pub fn pct_delta(a: f64, b: f64) -> String {
     }
 }
 
+/// Display label of a register index with the user annotation from
+/// `--reg-names` when available: `0xA2F` or `0xA2F(tRCD)`. Shared by
+/// the text view and the compare view of the strap "other fields".
+pub fn reg_names_label(names: Option<&std::collections::HashMap<u16, String>>, idx: u16) -> String {
+    if let Some(name) = names.and_then(|n| n.get(&idx)) {
+        format!("0x{idx:X}({name})")
+    } else {
+        format!("0x{idx:X}")
+    }
+}
+
 /// One group of "other fields": register label (or "RAW") + its
 /// (field, value) pairs.
 pub type RegGroup = (String, Vec<(String, String)>);

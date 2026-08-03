@@ -295,7 +295,7 @@ fn apply_one(
                     .collect::<Vec<_>>()
                     .join(", ");
                 if clocks.is_empty() {
-                    anyhow::bail!("no memory strap found in this ROM");
+                    bail!("no memory strap found in this ROM");
                 }
                 let old = if clocks.contains(&clock_mhz.to_string()) {
                     format!(
@@ -305,7 +305,7 @@ fn apply_one(
                 } else {
                     format!("no strap with clock {clock_mhz} MHz found (available: {clocks})")
                 };
-                anyhow::bail!("{old} (no-op)");
+                bail!("{old} (no-op)");
             }
             Ok(true)
         }

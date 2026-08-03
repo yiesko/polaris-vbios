@@ -69,17 +69,11 @@ pub(super) fn render_straps(rom: &ParsedRom, pal: &Palette, reg_names: RegNames)
     // it lives in (name + offset); raw hex for registers with no known
     // layout, user annotations from --reg-names applied inline.
     let groups_at = |strap: &crate::rom::types::MemoryStrap| {
-        crate::compare_util::strap_other_groups(
+        compare_util::strap_other_groups(
             &strap.values,
             &v.strap_reg_indices,
             crate::rom::timings::CORE_TIMINGS,
-            |idx| {
-                if let Some(name) = reg_names.and_then(|n| n.get(&idx)) {
-                    format!("0x{idx:X}({name})")
-                } else {
-                    format!("0x{idx:X}")
-                }
-            },
+            |idx| compare_util::reg_names_label(reg_names, idx),
         )
     };
 

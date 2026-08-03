@@ -133,13 +133,7 @@ pub(super) fn compare_straps(
             &strap.values,
             &rom.vram.strap_reg_indices,
             crate::rom::timings::CORE_TIMINGS,
-            |idx| {
-                if let Some(name) = reg_names.and_then(|n| n.get(&idx)) {
-                    format!("0x{idx:X}({name})")
-                } else {
-                    format!("0x{idx:X}")
-                }
-            },
+            |idx| compare_util::reg_names_label(reg_names, idx),
         )
     };
     t.note(&pal.label(

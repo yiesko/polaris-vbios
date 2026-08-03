@@ -66,6 +66,23 @@ fn run_json(roms: &[PathBuf]) -> ExitCode {
     }
 }
 
+/// Display name of the ROM's family, shared by the JSON and text
+/// output. Only PowerPlay format 7 images can be named; the device ID
+/// picks the die, and images without a recognized Polaris device ID
+/// get the generic label.
+fn family_label(rom: &rom::types::ParsedRom) -> String {
+    if rom.powerplay.header_fmt_rev == 7 {
+        rom.pci_images
+            .first()
+            .and_then(|img| {
+                rom::validate::die_for_device_id(img.device_id).map(|(n, _)| n.to_string())
+            })
+            .unwrap_or_else(|| "Polaris/Tonga/Fiji".to_string())
+    } else {
+        "unrecognized family".to_string()
+    }
+}
+
 fn identify_json(rom: &rom::types::ParsedRom) -> IdentifyJson {
     let total_mb: u32 = rom
         .vram
@@ -98,16 +115,7 @@ fn identify_json(rom: &rom::types::ParsedRom) -> IdentifyJson {
             .subsystem_vendor_name
             .clone()
             .unwrap_or_else(|| format!("0x{:04X}", rom.header.subsystem_vendor_id)),
-        family: if rom.powerplay.header_fmt_rev == 7 {
-            rom.pci_images
-                .first()
-                .and_then(|img| {
-                    rom::validate::die_for_device_id(img.device_id).map(|(n, _)| n.to_string())
-                })
-                .unwrap_or_else(|| "Polaris/Tonga/Fiji".to_string())
-        } else {
-            "unrecognized family".to_string()
-        },
+        family: family_label(rom),
         vram_size_mb: total_mb,
         memory_types: mem_types,
         memory_vendors: mem_vendors,
@@ -134,16 +142,7 @@ fn identify_json(rom: &rom::types::ParsedRom) -> IdentifyJson {
 }
 
 fn identify_line(rom: &rom::types::ParsedRom, pal: &Palette) -> String {
-    let family = if rom.powerplay.header_fmt_rev == 7 {
-        rom.pci_images
-            .first()
-            .and_then(|img| {
-                rom::validate::die_for_device_id(img.device_id).map(|(n, _)| n.to_string())
-            })
-            .unwrap_or_else(|| "Polaris/Tonga/Fiji".to_string())
-    } else {
-        "unrecognized family".to_string()
-    };
+    let family = family_label(rom);
     let vendor = rom
         .header
         .subsystem_vendor_name

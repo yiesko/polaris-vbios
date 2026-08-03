@@ -127,10 +127,7 @@ fn title(pal: &Palette, s: &str) -> String {
 /// `≠`/`=` marker; ANSI stripped first), used by `compare-all` to
 /// script the exit code.
 pub fn differs(content: &str) -> bool {
-    let plain = strip_ansi_escapes::strip(content);
-    String::from_utf8_lossy(&plain)
-        .lines()
-        .any(|l| l.trim_end().ends_with('≠'))
+    crate::compare::differs(content)
 }
 
 fn compare_all_section(
