@@ -42,7 +42,7 @@ impl<'a> Matrix<'a> {
             pal,
             diff_only,
             col_w: col_width(n),
-            name_w: 24,
+            name_w: 32,
             buf: String::new(),
             any_row: false,
         }

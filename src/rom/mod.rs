@@ -14,6 +14,7 @@ pub mod profiling;
 pub mod reader;
 pub mod smu;
 pub mod ss;
+pub mod timings;
 pub mod types;
 pub mod validate;
 pub mod vesa;

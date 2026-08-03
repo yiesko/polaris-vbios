@@ -52,6 +52,9 @@ pub(super) fn render_straps(rom: &ParsedRom, pal: &Palette, reg_names: RegNames)
             .collect::<Vec<_>>()
             .join(", ")
     )));
+    s.push_str(&pal.label(
+        "Timing values below are in memory-clock cycles (ns in parentheses); registers without a known timing layout are shown as raw hex.\n",
+    ));
     if let Some(names) = reg_names {
         let legend: Vec<String> = v
             .strap_reg_indices
@@ -101,12 +104,11 @@ pub(super) fn render_straps(rom: &ParsedRom, pal: &Palette, reg_names: RegNames)
                 "  {} {} {}\n",
                 pal.value(&pad(&format!("{:.0} MHz", strap.clock_mhz), 10)),
                 pad(&format!("({:.2} Gbps effective)", strap.effective_gbps), 14),
-                strap
-                    .values
-                    .iter()
-                    .map(|v| v.to_string())
-                    .collect::<Vec<_>>()
-                    .join(" ")
+                crate::rom::timings::fmt_strap(
+                    &strap.values,
+                    &v.strap_reg_indices,
+                    strap.clock_mhz
+                )
             ));
         }
     }

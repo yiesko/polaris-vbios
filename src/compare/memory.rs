@@ -81,19 +81,6 @@ pub(super) fn compare_straps(
         format!("{blocks_b:?}"),
     );
 
-    // Display name for register position i: uses the user annotation
-    // (--reg-names) matched by the register index from ROM A,
-    // if provided; otherwise falls back to the generic "regN".
-    let reg_label = |i: usize| -> String {
-        if let Some(names) = reg_names
-            && let Some(idx) = a.vram.strap_reg_indices.get(i)
-            && let Some(name) = names.get(idx)
-        {
-            return format!("{i}({name})");
-        }
-        i.to_string()
-    };
-
     // Match by clock (rounded to the nearest MHz, to tolerate
     // floating-point noise without requiring exact bit equality).
     let key = |mhz: f64| mhz.round() as i64;
@@ -101,78 +88,113 @@ pub(super) fn compare_straps(
     let clocks_b: BTreeSet<i64> = b.vram.straps.iter().map(|s| key(s.clock_mhz)).collect();
     let all_clocks: BTreeSet<i64> = clocks_a.union(&clocks_b).copied().collect();
 
-    // Register x clock matrix: rows are register positions (0..n),
-    // columns are the strap clocks present in either ROM. Cells show
-    // A/B register values; differing cells are highlighted, rows with
-    // no differences are hidden under --diff-only.
-    let cell = |rom: &ParsedRom, clk: i64, row: usize| -> Option<u32> {
-        rom.vram
-            .straps
-            .iter()
-            .find(|s| key(s.clock_mhz) == clk)
-            .and_then(|s| s.values.get(row).copied())
-    };
-    let n_rows = a
-        .vram
-        .straps
-        .iter()
-        .map(|s| s.values.len())
-        .chain(b.vram.straps.iter().map(|s| s.values.len()))
-        .max()
-        .unwrap_or(0);
+    // The timing fields users understand at a glance. Everything else
+    // (write delays, CRC, arbiter fields, registers with no known
+    // layout) is summarized per clock below the matrix.
+    const CORE_TIMINGS: &[&str] = &[
+        "tCL", "tRCDW", "tRCDWA", "tRCDR", "tRCDRA", "tRRD", "tRC", "tRP", "tRFC", "tFAW",
+    ];
 
     let clocks: Vec<i64> = all_clocks.into_iter().collect();
-    let mut rows = Vec::new();
-    for row in 0..n_rows {
-        let row_differs = clocks
-            .iter()
-            .any(|clk| cell(a, *clk, row) != cell(b, *clk, row));
-        if diff_only && !row_differs {
-            continue;
-        }
-        let mut cells = String::new();
-        for clk in &clocks {
-            match (cell(a, *clk, row), cell(b, *clk, row)) {
-                (Some(x), Some(y)) if x == y => {
-                    cells.push_str(&format!("{:<20}", pal.good(&format!("{x:08X}="))));
-                }
-                (Some(x), Some(y)) => {
-                    cells.push_str(&format!("{:<20}", pal.warn(&format!("{x:08X}/{y:08X}≠"))));
-                }
-                (Some(x), None) => {
-                    cells.push_str(&format!("{:<20}", pal.warn(&format!("{x:08X}/----"))));
-                }
-                (None, Some(y)) => {
-                    cells.push_str(&format!("{:<20}", pal.warn(&format!("----/{y:08X}"))));
-                }
-                (None, None) => {
-                    cells.push_str(&format!("{:<20}", "·"));
-                }
-            }
-        }
-        rows.push((row, row_differs, cells));
-    }
 
+    // Core timing x clock matrix: rows are timing fields, columns are
+    // the strap clocks present in either ROM. Cells show A/B values in
+    // memory-clock cycles; differing cells are highlighted, rows with
+    // no differences are hidden under --diff-only.
+    t.note(&pal.label("\n  Core timings per clock (cycles, A/B; · = no strap at this clock):"));
     let header_row = format!(
-        "  {:<24}  {}\n",
-        "reg (name)",
+        "  {:<24} {}\n",
+        "timing",
         clocks
             .iter()
-            .map(|clk| format!("{clk:<20}"))
+            .map(|clk| format!("{clk:<8}"))
             .collect::<Vec<_>>()
             .join("")
     );
-    t.note(&pal.label("\n  Straps x register matrix (A/B values in hex):"));
     t.note(header_row.trim_end());
-    for (row, differs, cells) in &rows {
-        let label = if *differs {
-            format!("{} {:<22}", pal.warn("≠"), reg_label(*row))
+    for field in CORE_TIMINGS {
+        let cells: Vec<(Option<u32>, Option<u32>)> = clocks
+            .iter()
+            .map(|clk| {
+                (
+                    compare_util::field_at(a, *clk, field),
+                    compare_util::field_at(b, *clk, field),
+                )
+            })
+            .collect();
+        let row_differs = cells.iter().any(|(x, y)| x != y);
+        if diff_only && !row_differs {
+            continue;
+        }
+        let mut line = String::new();
+        for (x, y) in &cells {
+            let content = match (x, y) {
+                (Some(xv), Some(yv)) if xv == yv => format!("{xv}="),
+                (Some(xv), Some(yv)) => format!("{xv}/{yv}"),
+                (Some(xv), None) => format!("{xv}/-"),
+                (None, Some(yv)) => format!("-/{yv}"),
+                (None, None) => "·".to_string(),
+            };
+            let padded = format!("{content:<8}");
+            let colored = match (x, y) {
+                (None, None) => padded,
+                (Some(xv), Some(yv)) if xv == yv => pal.good(&padded),
+                _ => pal.warn(&padded),
+            };
+            line.push_str(&colored);
+        }
+        let label = if row_differs {
+            format!("{} {:<22}", pal.warn("≠"), field)
         } else {
-            format!("  {:<22}", reg_label(*row))
+            format!("  {:<22}", field)
         };
-        t.note(&format!("  {label} {cells}"));
+        t.note(&format!("  {label} {line}"));
     }
-    t.note(&pal.label("  (= equal, ≠ differs; ---- = register not present in that strap)"));
+    t.note(&pal.label("  (= equal, ≠ differs, · = absent; values are memory-clock cycles)"));
+
+    // Everything else per clock: the remaining decoded fields, grouped
+    // by the register they live in (name + offset), plus raw hex for
+    // registers with no known timing layout. Fields equal in both ROMs
+    // are shown in green, differing ones in yellow, · = absent.
+    let field_pairs = |rom: &ParsedRom, clk: i64| {
+        let Some(strap) = rom.vram.straps.iter().find(|s| key(s.clock_mhz) == clk) else {
+            return Vec::new();
+        };
+        compare_util::strap_other_groups(
+            &strap.values,
+            &rom.vram.strap_reg_indices,
+            CORE_TIMINGS,
+            |idx| {
+                if let Some(name) = reg_names.and_then(|n| n.get(&idx)) {
+                    format!("0x{idx:X}({name})")
+                } else {
+                    format!("0x{idx:X}")
+                }
+            },
+        )
+    };
+    t.note(&pal.label(
+        "\n  Other fields & raw registers per clock (green = equal, yellow = differs, · = absent):",
+    ));
+    for clk in &clocks {
+        let ga = field_pairs(a, *clk);
+        let gb = field_pairs(b, *clk);
+        let (identical, lines) = compare_util::other_fields_lines(pal, &[ga, gb]);
+        if diff_only && identical {
+            continue;
+        }
+        let marker = if identical {
+            pal.good("=")
+        } else {
+            pal.warn("≠")
+        };
+        t.note(&format!("  {marker} {clk} MHz"));
+        if !identical {
+            for line in compare_util::align_other_lines(pal, &lines) {
+                t.note(&line);
+            }
+        }
+    }
 
     let trips_a = crate::rom::validate::cross_checks(a);
     let trips_b = crate::rom::validate::cross_checks(b);
