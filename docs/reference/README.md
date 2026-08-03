@@ -90,10 +90,18 @@ Every dump runs automatic sanity checks:
 - Checksum verification
 - PowerPlay table format revision vs expected family (Polaris = rev 7)
 - SCLK/MCLK table: non-empty, boost clock in plausible range (800–2000 MHz)
-- TDP: judged against the **die family's envelope** (Baffin 60–80 W,
-  Lexa 50 W, Ellesmere 10 120–150 W, Ellesmere 20 120–185 W, Polaris 30
-  175 W) plus the real-world OC headroom of that die - an RX 460 at
-  150 W is suspicious, an RX 580 "premium" at 185 W is fine
+- TDP: judged against the **die family's envelope** (Baffin 42–75 W,
+  Lexa 35–65 W, Ellesmere 10 85–130 W, Ellesmere 20 60–185 W, Polaris 30
+  185–220 W) plus the real-world OC headroom of that die - ranges are
+  measured from stock factory VBIOS, so a reference RX 470 (85 W), RX
+  480 (110 W), RX 550 (35 W) or RX 590 (185 W) never trips
+- Die detection for the TDP envelope uses, in order: the BIOS bootup
+  message (whitespace-insensitive: "POLARIS 30 XT A1" is matched), the
+  MC microcode version (12 nm Polaris 30 ships 11853696+; 14 nm dies
+  stay ~11850240–11852848), and for 67DF boards whose boot string does
+  not name the die (Asus "67DFHB...", MSI "113-MSI...", Gigabyte
+  "GV-...", Sapphire "E347/E353...") the union of Polaris 10 + Polaris
+  20 (RX 470–580)
 - Temperature limits (TjMax): plausible range; Polaris maximum is ~105 °C
 - Boot clocks present and non-zero
 - FirmwareInfo structure present at expected offset

@@ -71,17 +71,23 @@ fn run_json(roms: &[PathBuf]) -> ExitCode {
 }
 
 /// Display name of the ROM's family, shared by the JSON and text
-/// output. Only PowerPlay format 7 images can be named; the device ID
-/// picks the die, and images without a recognized Polaris device ID
-/// get the generic label.
+/// output. Only PowerPlay format 7 images can be named; the die is
+/// detected from device ID + bootup message + MC microcode (Polaris 30
+/// vs 20 vs 10 all share device 0x67DF, so the device ID alone would
+/// mislabel RX 570/580/590), and images without a recognized Polaris
+/// device ID get the generic label.
 fn family_label(rom: &rom::types::ParsedRom) -> String {
     if rom.powerplay.header_fmt_rev == 7 {
-        rom.pci_images
-            .first()
-            .and_then(|img| {
-                rom::validate::die_for_device_id(img.device_id).map(|(n, _)| n.to_string())
-            })
-            .unwrap_or_else(|| "Polaris/Tonga/Fiji".to_string())
+        match rom::limits::detect_die(rom) {
+            rom::limits::Die::Unknown => rom
+                .pci_images
+                .first()
+                .and_then(|img| {
+                    rom::validate::die_for_device_id(img.device_id).map(|(n, _)| n.to_string())
+                })
+                .unwrap_or_else(|| "Polaris/Tonga/Fiji".to_string()),
+            die => die.label().to_string(),
+        }
     } else {
         "unrecognized family".to_string()
     }

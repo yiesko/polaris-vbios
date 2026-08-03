@@ -157,7 +157,7 @@ fn guard_power(
                 }
             }
             Ok(safe) if safe.is_unusual() => {
-                println!("  warning: {}", safe.unusual_message());
+                println!("  warning: {} - applied anyway", safe.unusual_message());
             }
             _ => {}
         }

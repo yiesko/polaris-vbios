@@ -2,13 +2,23 @@
 //!
 //! The single source of truth for "what TDP makes sense for this
 //! silicon", shared by `validate` (read path - warnings) and `patch`
-//! (write path - refuses absurd values unless `--force`). Values come
-//! from the community reference map of the Polaris family:
+//! (write path - refuses absurd values unless `--force`). The ranges
+//! are measured from stock VBIOS (TechPowerUp database, hundreds of
+//! factory ROMs) - not a theoretical spec sheet, so factory SKUs never
+//! trip the unusual warning:
 //!
-//! - stock range: the nominal TDPs of all known factory SKUs of that
-//!   die (RX 570 120 W .. RX 580 "premium" 185 W for Polaris 20);
-//! - reported OC: the highest real-world, multi-report power limit
-//!   observed in the field (never the theoretical connector ceiling);
+//! - Baffin 42-75 W: RX 460 = 48 W, RX 560/560D = 42-60 W;
+//! - Lexa 35-65 W: RX 550 = 35 W, RX 560 (P12) = 42-60 W;
+//! - Ellesmere 10 85 W (RX 470) .. 130 W (RX 480/nitro OC);
+//! - Ellesmere 20 60-185 W: RX 570 = 120 W, RX 580 = 145-180 W,
+//!   notebooks = 68-85 W;
+//! - Polaris 30 185-220 W: RX 590 = 185 W, XFX 196 W, MSI 220 W.
+//!
+//! - stock range: the actual factory TDPs of that die (including
+//!   mobile and OEM variants);
+//! - reported ceiling: the highest real-world, multi-report power
+//!   limit observed in the field (never the theoretical connector
+//!   ceiling);
 //! - a value above `reported_oc_max + 25%` is physically implausible:
 //!   the VRM/phases/cooler of a Polaris board were never sized for it
 //!   (e.g. 300 W in a 120 W RX 570 single 6-pin ROM).
@@ -29,6 +39,10 @@ pub enum Die {
     Ellesmere20,
     /// Polaris 30 - RX 590 (12nm refresh).
     Polaris30,
+    /// Ellesmere die (RX 470/480/570/580) whose boot string does not
+    /// say whether it is Polaris 10 or Polaris 20 - judged against the
+    /// union of both generations.
+    EllesmereGeneric,
     /// Device ID not recognized as Polaris.
     Unknown,
 }
@@ -41,6 +55,7 @@ impl Die {
             Die::Ellesmere10 => "RX 470/480 (Polaris 10, Ellesmere)",
             Die::Ellesmere20 => "RX 570/580 (Polaris 20)",
             Die::Polaris30 => "RX 590 (Polaris 30)",
+            Die::EllesmereGeneric => "RX 470-580 (Ellesmere, P10/P20)",
             Die::Unknown => "unknown die",
         }
     }
@@ -62,29 +77,34 @@ pub struct PowerEnvelope {
 pub fn envelope_for(die: Die) -> Option<PowerEnvelope> {
     Some(match die {
         Die::Baffin => PowerEnvelope {
-            stock_min_w: 60,
-            stock_max_w: 80,
-            reported_oc_max_w: 100,
+            stock_min_w: 42,
+            stock_max_w: 75,
+            reported_oc_max_w: 90,
         },
         Die::Lexa => PowerEnvelope {
-            stock_min_w: 50,
-            stock_max_w: 50,
+            stock_min_w: 35,
+            stock_max_w: 65,
             reported_oc_max_w: 75,
         },
         Die::Ellesmere10 => PowerEnvelope {
-            stock_min_w: 120,
-            stock_max_w: 150,
-            reported_oc_max_w: 190,
+            stock_min_w: 85,
+            stock_max_w: 130,
+            reported_oc_max_w: 150,
         },
         Die::Ellesmere20 => PowerEnvelope {
-            stock_min_w: 120,
+            stock_min_w: 60,
             stock_max_w: 185,
             reported_oc_max_w: 210,
         },
         Die::Polaris30 => PowerEnvelope {
-            stock_min_w: 175,
-            stock_max_w: 175,
-            reported_oc_max_w: 220,
+            stock_min_w: 185,
+            stock_max_w: 220,
+            reported_oc_max_w: 235,
+        },
+        Die::EllesmereGeneric => PowerEnvelope {
+            stock_min_w: 85,
+            stock_max_w: 185,
+            reported_oc_max_w: 210,
         },
         Die::Unknown => return None,
     })
@@ -211,8 +231,7 @@ impl SafeTdp {
         let env = envelope_for(self.die).expect("unusual requires a known die");
         if self.watts < env.stock_min_w {
             format!(
-                "TDP {} W is below the {} W factory floor of a {} (nominal {}-{} W) - applied \
-                 anyway",
+                "TDP {} W is below the {} W factory floor of a {} (nominal {}-{} W)",
                 self.watts,
                 env.stock_min_w,
                 self.die.label(),
@@ -222,7 +241,7 @@ impl SafeTdp {
         } else {
             format!(
                 "TDP {} W is above the {} W factory range of a {} (real-world OC reports reach \
-                 ~{} W) - applied anyway",
+                 ~{} W)",
                 self.watts,
                 env.stock_max_w,
                 self.die.label(),
@@ -233,11 +252,18 @@ impl SafeTdp {
 }
 
 /// Detects the die family of a parsed ROM. The device ID separates
-/// Baffin (0x67EF) and Lexa (0x67FF/0x699F); the three Ellesmere
-/// variants all share device 0x67DF, so the BIOS bootup message names
-/// the die (e.g. "D00033 Polaris20 XL A1"): Polaris 30, then Polaris
-/// 20, anything else (Polaris 10 / Ellesmere / no message) falls back
-/// to the conservative RX 470/480 envelope.
+/// Baffin (0x67EF), Lexa (0x67FF/0x699F) and the Ellesmere family
+/// (0x67DF). The three Ellesmere variants all share device 0x67DF, so
+/// the distinction needs extra signals:
+///
+/// 1. the BIOS bootup message names the die (e.g. "D00034 Polaris20 XL
+///    A1" or "C94441 POLARIS 30 XT A1" - whitespace/hyphens are
+///    ignored so "POLARIS 30" is not missed);
+/// 2. otherwise the MC microcode version separates Polaris 30 (12 nm)
+///    from the 14 nm dies;
+/// 3. otherwise the boot string does not say (Asus "67DFHB...", MSI
+///    "113-MSI...", Gigabyte "GV-...", Sapphire "E347/E353..."): judged
+///    against the union of Polaris 10 + Polaris 20 (RX 470..580).
 pub fn detect_die(rom: &ParsedRom) -> Die {
     let device = rom.pci_images.first().map(|img| img.device_id);
     match device {
@@ -249,13 +275,24 @@ pub fn detect_die(rom: &ParsedRom) -> Die {
                 .bios_bootup_message
                 .as_deref()
                 .unwrap_or_default()
-                .to_ascii_lowercase();
+                .to_ascii_lowercase()
+                .chars()
+                .filter(|c| !c.is_whitespace() && *c != '-')
+                .collect::<String>();
             if msg.contains("polaris30") {
                 Die::Polaris30
             } else if msg.contains("polaris20") {
                 Die::Ellesmere20
-            } else {
+            } else if msg.contains("polaris10") || msg.contains("ellesmere") {
                 Die::Ellesmere10
+            } else if rom.vram.mcu_code_version.is_some_and(|v| v >= 11_853_696) {
+                // MC microcode: 12 nm Polaris 30 ships 11853696+
+                // (28630912 on the RX 590); 14 nm dies stay ~11850240..
+                // 11852848. A value in the 30 range with no die name
+                // means an early RX 590 with a bare boot string.
+                Die::Polaris30
+            } else {
+                Die::EllesmereGeneric
             }
         }
         _ => Die::Unknown,
