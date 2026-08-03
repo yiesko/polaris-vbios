@@ -71,7 +71,23 @@ pub fn run(
     };
 
     let write_ok = cmd::write_output(output, &content);
-    cmd::final_exit_code(!write_ok, had_warnings)
+    // Scriptable verdict: identical ROMs exit 0, differing ROMs exit 1
+    // (same code as errors - a non-zero exit means "not identical").
+    // In text mode the report's own `≠` marker is the verdict; in JSON
+    // mode the two documents are compared structurally.
+    let differs = if json {
+        match (serde_json::to_string(&a), serde_json::to_string(&b)) {
+            (Ok(sa), Ok(sb)) => sa != sb,
+            _ => false,
+        }
+    } else {
+        compare::differs(&content)
+    };
+    if differs || !write_ok {
+        ExitCode::from(cmd::EXIT_ERROR)
+    } else {
+        cmd::final_exit_code(false, had_warnings)
+    }
 }
 
 pub fn run_all(
@@ -103,5 +119,19 @@ pub fn run_all(
     };
 
     let write_ok = cmd::write_output(output, &content);
-    cmd::final_exit_code(had_error || !write_ok, had_warnings)
+    let differs = if json {
+        let docs = parsed
+            .iter()
+            .map(serde_json::to_string)
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap_or_default();
+        docs.windows(2).any(|w| w[0] != w[1])
+    } else {
+        compare_all::differs(&content)
+    };
+    if differs || had_error || !write_ok {
+        ExitCode::from(cmd::EXIT_ERROR)
+    } else {
+        cmd::final_exit_code(false, had_warnings)
+    }
 }

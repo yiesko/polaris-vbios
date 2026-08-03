@@ -12,14 +12,16 @@ use crate::rom::patch::PatchOp;
 use crate::rom::reader::Reader;
 
 /// Parses every `--set-strap`, `--set-strap-reg`, `--retag-strap`,
-/// `--pp-*`, `--vram-size-mb` and `--hex` argument of the patch command
-/// into ops. Reference-ROM ops (`--clone-ids`, `--import-vram`) are
-/// resolved later by [`run`] because they need file I/O.
+/// `--timing`, `--pp-*`, `--vram-size-mb` and `--hex` argument of the
+/// patch command into ops. Reference-ROM ops (`--clone-ids`,
+/// `--import-vram`) are resolved later by [`run`] because they need
+/// file I/O.
 fn build_ops(cmd: &Command) -> Result<Vec<PatchOp>, String> {
     let Command::Patch {
         set_strap,
         set_strap_reg,
         retag_strap,
+        timing,
         pp_sclk,
         pp_mclk,
         pp_vddc,
@@ -53,6 +55,9 @@ fn build_ops(cmd: &Command) -> Result<Vec<PatchOp>, String> {
             clock_mhz: cmd::parse_num(&g[0], "clock (MHz)")?,
             new_clock_mhz: cmd::parse_num(&g[1], "new clock (MHz)")?,
         });
+    }
+    for g in timing.chunks_exact(3) {
+        ops.push(parse_timing(&g[0], &g[1], &g[2])?);
     }
     for g in pp_sclk.chunks_exact(2) {
         ops.push(PatchOp::PpSclk {
@@ -110,6 +115,54 @@ fn build_ops(cmd: &Command) -> Result<Vec<PatchOp>, String> {
     Ok(ops)
 }
 
+/// Parses one `--timing <clock> <field> <value>` group into a
+/// [`PatchOp::SetTiming`]. The value is clock cycles, or nanoseconds
+/// when it carries an `ns` suffix - then converted to cycles at the
+/// given clock. Refused when the field is unknown or the value does not
+/// fit the field's bit width (fail fast, before touching the ROM).
+fn parse_timing(clock: &str, field: &str, value: &str) -> Result<PatchOp, String> {
+    let clock_mhz: u32 = cmd::parse_num(clock, "clock (MHz)")?;
+    if clock_mhz == 0 {
+        return Err("--timing clock must be positive".to_string());
+    }
+    let (reg, f) = rom::timings::field_named(field).ok_or_else(|| {
+        format!(
+            "unknown memory timing field '{field}' (known: {})",
+            rom::timings::CORE_TIMINGS.join(", ")
+        )
+    })?;
+    let lower = value.to_ascii_lowercase();
+    let cycles = if let Some(v) = lower.strip_suffix("ns") {
+        let ns: f64 = v
+            .trim()
+            .parse()
+            .map_err(|_| format!("cannot parse '{value}' as nanoseconds"))?;
+        if ns <= 0.0 {
+            return Err("--timing value in ns must be positive".to_string());
+        }
+        (ns * clock_mhz as f64 / 1000.0).round() as u32
+    } else {
+        let c: i64 = cmd::parse_num(value, "timing value")?;
+        if c < 0 {
+            return Err("--timing value must be positive".to_string());
+        }
+        c as u32
+    };
+    let max = (1u32 << f.width) - 1;
+    if cycles > max {
+        return Err(format!(
+            "--timing {clock_mhz} {field} {cycles} cycles exceeds the {}-bit {field} field \
+             of {} (max {max})",
+            f.width, reg.name
+        ));
+    }
+    Ok(PatchOp::SetTiming {
+        clock_mhz,
+        field: f.name,
+        cycles,
+    })
+}
+
 /// Reads a reference ROM and resolves the values `--clone-ids` needs:
 /// the device-id (first PCI option ROM image) and the subsystem
 /// vendor/device pair of the ATOM header.
@@ -155,6 +208,7 @@ pub fn run(
     set_strap: Vec<String>,
     set_strap_reg: Vec<String>,
     retag_strap: Vec<String>,
+    timing: Vec<String>,
     pp_sclk: Vec<String>,
     pp_mclk: Vec<String>,
     pp_vddc: Vec<String>,
@@ -173,6 +227,7 @@ pub fn run(
         set_strap,
         set_strap_reg,
         retag_strap,
+        timing,
         pp_sclk,
         pp_mclk,
         pp_vddc,
@@ -218,7 +273,8 @@ pub fn run(
     }
     if ops.is_empty() && !fix_checksum {
         eprintln!(
-            "error: nothing to do - add an edit (--set-strap, --pp-*, --hex...) or --fix-checksum"
+            "error: nothing to do - add an edit (--set-strap, --timing, --pp-*, --hex...) \
+             or --fix-checksum"
         );
         return ExitCode::from(cmd::EXIT_ERROR);
     }

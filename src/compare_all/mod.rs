@@ -122,6 +122,17 @@ fn title(pal: &Palette, s: &str) -> String {
     pal.title(&format!("── {s} "))
 }
 
+/// Whether a rendered matrix reports at least one differing row - same
+/// contract as [`crate::compare::differs`] (data rows end in their
+/// `≠`/`=` marker; ANSI stripped first), used by `compare-all` to
+/// script the exit code.
+pub fn differs(content: &str) -> bool {
+    let plain = strip_ansi_escapes::strip(content);
+    String::from_utf8_lossy(&plain)
+        .lines()
+        .any(|l| l.trim_end().ends_with('≠'))
+}
+
 fn compare_all_section(
     roms: &[ParsedRom],
     names: &[String],

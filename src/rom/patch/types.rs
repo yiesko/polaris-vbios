@@ -12,6 +12,15 @@ pub enum PatchOp {
     /// Set the same MC register (identified by its absolute offset in
     /// the strap reg index table) in every strap block.
     SetStrapReg { reg_offset: u32, value: u32 },
+    /// Set a named memory timing (tCL, tRFC, ...) to `cycles` in every
+    /// strap block whose clock is `clock_mhz`. The field's register and
+    /// bit range come from `timings::field_named`; the value was already
+    /// checked against the field's width when the op was built.
+    SetTiming {
+        clock_mhz: u32,
+        field: &'static str,
+        cycles: u32,
+    },
     /// Change the clock a strap is tagged with (preserving the block id).
     RetagStrap { clock_mhz: u32, new_clock_mhz: u32 },
     /// Set SCLK DPM `level` (MHz).

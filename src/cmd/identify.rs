@@ -6,7 +6,10 @@ use std::process::ExitCode;
 use crate::render::color::{Palette, fit, truncate};
 use crate::{cmd, rom};
 
-pub fn run(roms: Vec<PathBuf>, color: bool) -> ExitCode {
+pub fn run(roms: Vec<PathBuf>, color: bool, json: bool) -> ExitCode {
+    if json {
+        return run_json(&roms);
+    }
     let pal = Palette::new(color);
     let mut had_error = false;
     let mut had_warnings = false;
@@ -23,6 +26,111 @@ pub fn run(roms: Vec<PathBuf>, color: bool) -> ExitCode {
         }
     }
     cmd::final_exit_code(had_error, had_warnings)
+}
+
+#[derive(serde::Serialize)]
+struct IdentifyJson {
+    file: String,
+    vendor: String,
+    family: String,
+    vram_size_mb: u32,
+    memory_types: Vec<String>,
+    memory_vendors: Vec<String>,
+    boost_sclk_mhz: f64,
+    boost_mclk_mhz: f64,
+    tdp_w: u16,
+    warnings: Vec<String>,
+}
+
+fn run_json(roms: &[PathBuf]) -> ExitCode {
+    let mut had_error = false;
+    let mut out = Vec::new();
+    for path in roms {
+        match rom::parse_rom(path) {
+            Ok(p) => out.push(identify_json(&p)),
+            Err(e) => {
+                eprintln!("{}: error reading - {e:#}", path.display());
+                had_error = true;
+            }
+        }
+    }
+    match serde_json::to_string_pretty(&out) {
+        Ok(s) => {
+            println!("{s}");
+            cmd::final_exit_code(had_error, false)
+        }
+        Err(e) => {
+            eprintln!("error generating JSON: {e}");
+            ExitCode::from(cmd::EXIT_ERROR)
+        }
+    }
+}
+
+fn identify_json(rom: &rom::types::ParsedRom) -> IdentifyJson {
+    let total_mb: u32 = rom
+        .vram
+        .modules
+        .iter()
+        .map(|m| m.memory_size_mb as u32)
+        .max()
+        .unwrap_or(0);
+    let mut mem_types: Vec<String> = rom
+        .vram
+        .modules
+        .iter()
+        .map(|m| m.memory_type_name.clone())
+        .collect();
+    mem_types.sort();
+    mem_types.dedup();
+    let mut mem_vendors: Vec<String> = rom
+        .vram
+        .modules
+        .iter()
+        .filter_map(|m| guess_memory_vendor(&m.part_number))
+        .map(str::to_string)
+        .collect();
+    mem_vendors.sort();
+    mem_vendors.dedup();
+    IdentifyJson {
+        file: rom.file_name.clone(),
+        vendor: rom
+            .header
+            .subsystem_vendor_name
+            .clone()
+            .unwrap_or_else(|| format!("0x{:04X}", rom.header.subsystem_vendor_id)),
+        family: if rom.powerplay.header_fmt_rev == 7 {
+            rom.pci_images
+                .first()
+                .and_then(|img| {
+                    rom::validate::die_for_device_id(img.device_id).map(|(n, _)| n.to_string())
+                })
+                .unwrap_or_else(|| "Polaris/Tonga/Fiji".to_string())
+        } else {
+            "unrecognized family".to_string()
+        },
+        vram_size_mb: total_mb,
+        memory_types: mem_types,
+        memory_vendors: mem_vendors,
+        boost_sclk_mhz: rom
+            .powerplay
+            .sclk_table
+            .last()
+            .map(|e| e.sclk_mhz)
+            .unwrap_or(0.0),
+        boost_mclk_mhz: rom
+            .powerplay
+            .mclk_table
+            .last()
+            .map(|e| e.mclk_mhz)
+            .unwrap_or(0.0),
+        tdp_w: rom
+            .powerplay
+            .powertune
+            .as_ref()
+            .map(|p| p.tdp_w)
+            .unwrap_or(0),
+        warnings: rom.warnings.clone(),
+    }
 }
 
 fn identify_line(rom: &rom::types::ParsedRom, pal: &Palette) -> String {

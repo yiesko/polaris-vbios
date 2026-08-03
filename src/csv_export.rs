@@ -171,6 +171,12 @@ fn straps_csv(w: &mut csv::Writer<Vec<u8>>, roms: &[&ParsedRom]) {
     for i in 0..max_regs {
         header.push(format!("reg{i}"));
     }
+    // Decoded timing columns keep the raw regN columns untouched.
+    header.extend(
+        crate::rom::timings::CORE_TIMINGS
+            .iter()
+            .map(|s| s.to_string()),
+    );
     w.write_record(header.iter().map(|s| s.as_str()).collect::<Vec<_>>())
         .ok();
     for r in roms {
@@ -183,6 +189,13 @@ fn straps_csv(w: &mut csv::Writer<Vec<u8>>, roms: &[&ParsedRom]) {
             ];
             for i in 0..max_regs {
                 cells.push(s.values.get(i).map(|v| v.to_string()).unwrap_or_default());
+            }
+            for name in crate::rom::timings::CORE_TIMINGS {
+                cells.push(
+                    crate::rom::timings::decode(&s.values, &r.vram.strap_reg_indices, name)
+                        .map(|v| v.to_string())
+                        .unwrap_or_default(),
+                );
             }
             w.write_record(cells.iter().map(|s| s.as_str()).collect::<Vec<_>>())
                 .ok();

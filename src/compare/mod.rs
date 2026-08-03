@@ -213,3 +213,15 @@ fn compare_section(
 fn title(pal: &Palette, s: &str) -> String {
     pal.title(&format!("── {s} "))
 }
+
+/// Whether a rendered comparison reports at least one differing row.
+/// Data rows always end with their marker (`≠` for a difference, `=`
+/// for an equal row), while notes/legends never do - so a line ending
+/// in `≠` is the report's own verdict. ANSI codes are stripped first
+/// (colors wrap the marker). Used by `compare` to script the exit code.
+pub fn differs(content: &str) -> bool {
+    let plain = strip_ansi_escapes::strip(content);
+    String::from_utf8_lossy(&plain)
+        .lines()
+        .any(|l| l.trim_end().ends_with('≠'))
+}

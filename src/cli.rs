@@ -18,6 +18,10 @@ pub struct Cli {
 }
 
 #[derive(Subcommand)]
+// The variants differ a lot in size (Patch carries many edit vectors vs
+// Convert's three floats); the enum is built once per process and only
+// moved, so the boxed-payload refactor the lint asks for buys nothing.
+#[allow(clippy::large_enum_variant)]
 pub enum Command {
     /// Read one or more ROMs and display info in the terminal (or file/JSON/CSV)
     Dump {
@@ -38,7 +42,9 @@ pub enum Command {
         #[arg(short = 'o', long)]
         output: Option<PathBuf>,
     },
-    /// Compare two ROMs side by side
+    /// Compare two ROMs side by side. Exit code: 0 when identical,
+    /// 1 when they differ (or on error), 2 when identical but warnings
+    /// were reported
     Compare {
         rom_a: PathBuf,
         rom_b: PathBuf,
@@ -56,7 +62,9 @@ pub enum Command {
         #[arg(long)]
         diff_only: bool,
     },
-    /// Matrix comparison for 2+ ROMs at once
+    /// Matrix comparison for 2+ ROMs at once. Exit code: 0 when all
+    /// identical, 1 when any pair differs (or on error), 2 when
+    /// identical but warnings were reported
     CompareAll {
         #[arg(required = true)]
         roms: Vec<PathBuf>,
@@ -77,6 +85,45 @@ pub enum Command {
         roms: Vec<PathBuf>,
         #[arg(long)]
         no_color: bool,
+        /// Emit one JSON object per ROM instead of the one-line summary
+        #[arg(long)]
+        json: bool,
+    },
+    /// Run every validation rule on one or more ROMs. Exit code: 0 when
+    /// clean, 1 when any finding is reported, 2 when a ROM fails to parse
+    Check {
+        #[arg(required = true)]
+        roms: Vec<PathBuf>,
+        /// Print nothing, only the exit code (scripting)
+        #[arg(long)]
+        quiet: bool,
+    },
+    /// Convert a memory timing between clock cycles and nanoseconds at
+    /// a given clock. Give exactly one of --cycles / --ns
+    Convert {
+        /// Memory clock in MHz, e.g. 2000
+        #[arg(long, required = true)]
+        clock: f64,
+        /// Value in clock cycles
+        #[arg(long, conflicts_with = "ns")]
+        cycles: Option<f64>,
+        /// Value in nanoseconds (fractional allowed, e.g. 109.5)
+        #[arg(long, conflicts_with = "cycles")]
+        ns: Option<f64>,
+    },
+    /// Decode a memory strap register set pasted as hex, without a ROM.
+    /// The default Polaris register index table (14 slots) is used
+    /// unless --indices is given
+    DecodeStrap {
+        /// Memory clock in MHz, for the cycles->ns conversion
+        clock: f64,
+        /// Register values, one hex u32 per strap register slot
+        #[arg(required = true, value_name = "HEX_VALUE")]
+        values: Vec<String>,
+        /// Register index table (comma-separated hex), overriding the
+        /// default 14-slot Polaris table
+        #[arg(long, value_name = "INDICES")]
+        indices: Option<String>,
     },
     /// Open the interactive TUI
     Tui {
@@ -151,6 +198,13 @@ pub enum Command {
         /// Set MC register in every strap block: <reg_offset> <value>
         #[arg(long, num_args = 2, value_names = ["REG_OFFSET", "VALUE"])]
         set_strap_reg: Vec<String>,
+        /// Set a named memory timing (tCL, tRFC, ...) in every strap
+        /// block of that clock: <clock_mhz> <field> <cycles>. A value
+        /// with an "ns" suffix is converted to cycles at that clock,
+        /// e.g. `--timing 2000 tRFC 110ns`. Refused when the value does
+        /// not fit the field's bit width
+        #[arg(long, num_args = 3, value_names = ["CLOCK_MHZ", "FIELD", "VALUE"])]
+        timing: Vec<String>,
         /// Change the clock a strap is tagged with: <clock_mhz> <new_mhz>.
         /// Refused above the highest strap clock the ROM ships (the MC
         /// only trains those); warned when no MCLK DPM level matches
@@ -284,7 +338,10 @@ impl Command {
             | Command::DiffDisasm { no_color, .. } => !no_color,
             Command::Tui { .. } => true,
             Command::Extract { .. } => true,
-            Command::Patch { .. } => false,
+            Command::Patch { .. }
+            | Command::Check { .. }
+            | Command::Convert { .. }
+            | Command::DecodeStrap { .. } => false,
             Command::ListSections => true,
             Command::Completions { .. } => true,
             Command::Man => true,
@@ -304,7 +361,8 @@ impl Command {
         match self {
             Command::Dump { json, .. }
             | Command::Compare { json, .. }
-            | Command::CompareAll { json, .. } => *json,
+            | Command::CompareAll { json, .. }
+            | Command::Identify { json, .. } => *json,
             _ => false,
         }
     }

@@ -2,7 +2,10 @@
 //! helpers used by several of them (exit codes, output writing, ROM
 //! parsing, register-name loading).
 
+mod check;
 mod compare;
+mod convert;
+mod decode;
 mod disasm;
 mod dump;
 mod extract;
@@ -54,7 +57,14 @@ pub fn run(cmd: Command) -> ExitCode {
         Command::CompareAll { roms, .. } => {
             compare::run_all(roms, sections, json, color, output, diff_only)
         }
-        Command::Identify { roms, .. } => identify::run(roms, color),
+        Command::Identify { roms, json, .. } => identify::run(roms, color, json),
+        Command::Check { roms, quiet } => check::run(&roms, quiet),
+        Command::Convert { clock, cycles, ns } => convert::run(clock, cycles, ns),
+        Command::DecodeStrap {
+            clock,
+            values,
+            indices,
+        } => decode::run(clock, &values, indices.as_deref()),
         Command::Extract {
             rom,
             image,
@@ -99,6 +109,7 @@ pub fn run(cmd: Command) -> ExitCode {
             set_strap,
             set_strap_reg,
             retag_strap,
+            timing,
             pp_sclk,
             pp_mclk,
             pp_vddc,
@@ -116,6 +127,7 @@ pub fn run(cmd: Command) -> ExitCode {
             set_strap,
             set_strap_reg,
             retag_strap,
+            timing,
             pp_sclk,
             pp_mclk,
             pp_vddc,

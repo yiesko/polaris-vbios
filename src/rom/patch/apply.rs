@@ -233,6 +233,81 @@ fn apply_one(
             }
             Ok(true)
         }
+        PatchOp::SetTiming {
+            clock_mhz,
+            field,
+            cycles,
+        } => {
+            let vram_off = vram_off()?;
+            // The field was resolved at parse time; re-resolve here so
+            // the op stays self-contained.
+            let (reg, f) = crate::rom::timings::field_named(field)
+                .ok_or_else(|| anyhow::anyhow!("unknown memory timing field '{field}'"))?;
+            let n = super::limits::n_regs(&r, vram_off);
+            let mut slot = None;
+            for i in 0..n {
+                let o = locate::strap_reg_index(&r, vram_off, i)
+                    .ok_or_else(|| anyhow::anyhow!("ROM has no strap register index table"))?;
+                if r.u16(o)? == reg.index {
+                    slot = Some(i);
+                    break;
+                }
+            }
+            let slot = slot.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "MC register 0x{:X} ({}) is not in the strap register index table",
+                    reg.index,
+                    reg.name
+                )
+            })?;
+            let (data_start, block_size) = locate::strap_region(&r, vram_off)
+                .ok_or_else(|| anyhow::anyhow!("ROM has no memory strap table"))?;
+            let mask = (1u32 << f.width) - 1;
+            let want = super::limits::centi_mhz(*clock_mhz)?;
+            let mut applied = 0;
+            for idx in 0..super::limits::strap_count(&r, data_start, block_size) {
+                let clock_raw = r.u32(data_start + idx * block_size)?;
+                if clock_raw & 0xFF_FFFF != want {
+                    continue;
+                }
+                let off = locate::strap_value(&r, vram_off, idx, slot)
+                    .ok_or_else(|| anyhow::anyhow!("strap block {idx} has no register {slot}"))?;
+                let old = r.u32(off)?;
+                let new = (old & !(mask << f.offset)) | (*cycles << f.offset);
+                if push_diff(
+                    &r,
+                    report,
+                    off,
+                    &new.to_le_bytes(),
+                    &format!(
+                        "strap {clock_mhz} MHz {} (0x{:X}): {} -> {}",
+                        field, reg.index, old, new
+                    ),
+                )? {
+                    applied += 1;
+                }
+            }
+            if applied == 0 {
+                let clocks = (0..super::limits::strap_count(&r, data_start, block_size))
+                    .filter_map(|i| r.u32(data_start + i * block_size).ok())
+                    .map(|raw| format!("{}", (raw & 0xFF_FFFF) / 100))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                if clocks.is_empty() {
+                    anyhow::bail!("no memory strap found in this ROM");
+                }
+                let old = if clocks.contains(&clock_mhz.to_string()) {
+                    format!(
+                        "{} already holds {cycles} cycles in every {clock_mhz} MHz strap",
+                        field
+                    )
+                } else {
+                    format!("no strap with clock {clock_mhz} MHz found (available: {clocks})")
+                };
+                anyhow::bail!("{old} (no-op)");
+            }
+            Ok(true)
+        }
         PatchOp::RetagStrap {
             clock_mhz,
             new_clock_mhz,

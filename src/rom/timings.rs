@@ -158,6 +158,37 @@ pub const CORE_TIMINGS: &[&str] = &[
     "tCL", "tRCDW", "tRCDWA", "tRCDR", "tRCDRA", "tRRD", "tRC", "tRP", "tRFC", "tFAW",
 ];
 
+/// The register index table every Polaris strap block we have seen uses
+/// (14 slots: seven recognized MC registers, five unrecognized, one
+/// terminator). `decode-strap` falls back to it when no `--indices` is
+/// given - all three reference ROMs (247426, XFX RX 570, RX 570 OEM)
+/// ship exactly this table.
+pub const DEFAULT_INDICES: &[u16] = &[
+    0xA2F, 0xA30, 0xAD5, 0xA2C, 0xA28, 0xA29, 0xA2A, 0xA2B, 0xA81, 0xA8B, 0xA5F, 0x9DD, 0x9DE,
+    0xFFFF,
+];
+
+/// The register + field with the given timing name, if the field is in
+/// a recognized register. Both are `Copy`, so returned by value.
+pub fn field_named(name: &str) -> Option<(TimingRegister, TimingField)> {
+    KNOWN.iter().find_map(|reg| {
+        reg.fields
+            .iter()
+            .find(|f| f.name == name)
+            .map(|f| (*reg, *f))
+    })
+}
+
+/// Value of the named timing field in a strap: `values` are the strap's
+/// registers, `indices` its register index table. `None` when the
+/// register is not in the table or the strap has no such slot.
+pub fn decode(values: &[u32], indices: &[u16], name: &str) -> Option<u32> {
+    let (reg, f) = field_named(name)?;
+    let slot = indices.iter().position(|i| *i == reg.index)?;
+    let value = *values.get(slot)?;
+    Some((value >> f.offset) & ((1 << f.width) - 1))
+}
+
 /// Classic timing set, shown with ns values alongside the cycles.
 pub const CLASSIC_NS: &[&str] = &["tRC", "tRFC", "tRP", "tRRD", "tFAW"];
 
