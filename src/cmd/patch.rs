@@ -237,11 +237,6 @@ pub fn run(
         report.warnings.len() + overlap_notes.len()
     );
 
-    if dry_run {
-        println!("dry run - nothing written");
-        return ExitCode::from(cmd::EXIT_OK);
-    }
-
     // Structural verification before writing: nothing but the reported
     // diffs may have touched layout-defining bytes.
     let mut all_diffs = report.diffs.clone();
@@ -256,7 +251,7 @@ pub fn run(
         }
     }
 
-    // Structural verification before writing: refuse on any failure.
+    // Full re-parse + disasm sweep: refuse on any structural failure.
     match rom::patch::verify(&patched) {
         Ok(verify_warnings) => {
             for w in &verify_warnings {
@@ -267,6 +262,11 @@ pub fn run(
             eprintln!("error: verification failed, refusing to write: {e}");
             return ExitCode::from(cmd::EXIT_ERROR);
         }
+    }
+
+    if dry_run {
+        println!("dry run - nothing written");
+        return ExitCode::from(cmd::EXIT_OK);
     }
 
     match write_atomic(out_path, &patched) {

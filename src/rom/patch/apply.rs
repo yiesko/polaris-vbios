@@ -172,6 +172,12 @@ fn apply_one(
             )
         }
         PatchOp::SetStrapReg { reg_offset, value } => {
+            if *reg_offset > u16::MAX as u32 {
+                bail!(
+                    "MC register offset 0x{reg_offset:X} is out of range (max 0xFFFF) - \
+                     refusing to guess a truncated register"
+                );
+            }
             let vram_off = vram_off()?;
             let n = super::limits::n_regs(&r, vram_off);
             let mut found = None;
@@ -312,6 +318,28 @@ fn apply_one(
                     "MCLK {mhz} MHz is outside the usual 100-3000 MHz range (applied anyway)"
                 ));
             }
+            // The memory controller only trains the strap clocks the
+            // vendor shipped; a DPM clock with no matching strap may
+            // never be trained (mirror of the retag DPM-pairing check).
+            if let Some(vram_off) = map.vram_off
+                && let Some((data_start, block_size)) = locate::strap_region(&r, vram_off)
+            {
+                let strap_clocks = (0..super::limits::strap_count(&r, data_start, block_size))
+                    .filter_map(|i| r.u32(data_start + i * block_size).ok())
+                    .map(|raw| (raw & 0xFF_FFFF) / 100)
+                    .collect::<Vec<_>>();
+                if !strap_clocks.contains(mhz) {
+                    report.warnings.push(format!(
+                        "MCLK DPM level {level}: {mhz} MHz has no matching memory strap \
+                         (strap clocks: {}) - the memory controller may not train it",
+                        strap_clocks
+                            .iter()
+                            .map(|c| c.to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ));
+                }
+            }
             let old = r.u32(off)? as f64 / 100.0;
             push_diff(
                 &r,
@@ -369,6 +397,19 @@ fn apply_one(
             if !(30..=300).contains(watts) {
                 report.warnings.push(format!(
                     "TDP {watts} W is outside the usual 30-300 W range (applied anyway)"
+                ));
+            }
+            // The PowerPlay table declares the highest configurable TDP
+            // and the max power delivery the firmware accepts; warn above
+            // them (the SMC clamps to the cap, same as the VDDC hard limit).
+            let declared_cap = r
+                .u16(pt_off + 3)
+                .unwrap_or(0)
+                .max(r.u16(pt_off + 15).unwrap_or(0));
+            if declared_cap > 0 && *watts as u32 > declared_cap as u32 {
+                report.warnings.push(format!(
+                    "TDP {watts} W exceeds the {declared_cap} W configured limit declared by this ROM \
+                     (applied anyway - the SMC clamps to the safe value)"
                 ));
             }
             let old = r.u16(off)?;
