@@ -5,6 +5,7 @@ pub mod firmware;
 pub mod gpio;
 pub mod gpio_i2c;
 pub mod header;
+pub mod limits;
 pub mod locate;
 pub mod patch;
 pub mod pci;

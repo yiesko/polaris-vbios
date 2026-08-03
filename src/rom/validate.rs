@@ -1,3 +1,4 @@
+use super::limits;
 use super::types::ParsedRom;
 
 /// Expected compute unit count per device ID, from the physical die:
@@ -75,15 +76,35 @@ pub fn validate(rom: &ParsedRom) -> Vec<String> {
         Some(pt) if pt.tdp_w == 0 => w.push(
             "TDP read as 0 W - the PowerTune table is probably corrupted or empty.".to_string(),
         ),
-        Some(pt) if pt.tdp_w > 250 => w.push(format!(
-            "TDP read as {} W - typical Polaris TDP is 75–185 W; this value is unusually high.",
-            pt.tdp_w
-        )),
-        Some(pt) if pt.tdp_w < 30 => w.push(format!(
-            "TDP read as {} W - unusually low for a Polaris GPU.",
-            pt.tdp_w
-        )),
-        _ => {}
+        Some(pt) => {
+            // Envelope per die family (shared with the patch guardrails,
+            // see limits.rs): an RX 460 is suspicious at 150 W, an RX
+            // 580 "premium" is fine at 185 W - one global range cannot
+            // say either. Unrecognized dies keep a coarse sanity net.
+            let die = limits::detect_die(rom);
+            if die == limits::Die::Unknown {
+                if pt.tdp_w > 250 {
+                    w.push(format!(
+                        "TDP read as {} W - unusually high for a Polaris GPU.",
+                        pt.tdp_w
+                    ));
+                } else if pt.tdp_w < 30 {
+                    w.push(format!(
+                        "TDP read as {} W - unusually low for a Polaris GPU.",
+                        pt.tdp_w
+                    ));
+                }
+            } else {
+                match limits::SafeTdp::try_new(pt.tdp_w as u32, die) {
+                    Err(e) => w.push(format!(
+                        "{} - the ROM may be corrupted or taken from another GPU.",
+                        e.message()
+                    )),
+                    Ok(safe) if safe.is_unusual() => w.push(safe.unusual_message()),
+                    _ => {}
+                }
+            }
+        }
     }
 
     if let Some(pt) = &rom.powerplay.powertune {

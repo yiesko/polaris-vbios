@@ -40,21 +40,6 @@ fn header_row(pal: &Palette, name_a: &str, name_b: &str) -> String {
     format!("{}\n{}", pal.label(&line), pal.label(&rule))
 }
 
-/// Percent delta `(b - a) / a`, formatted with sign. `a == 0` has no
-/// well-defined percent variation, so we show a neutral indicator
-/// instead of dividing by zero.
-fn pct_delta(a: f64, b: f64) -> String {
-    if a == 0.0 {
-        if b == 0.0 {
-            "0%".to_string()
-        } else {
-            "n/a".to_string()
-        }
-    } else {
-        format!("{:+.1}%", (b - a) / a * 100.0)
-    }
-}
-
 /// Accumulates comparison table lines, with support for `--diff-only`
 /// (omit rows where both values are equal) and percent delta for
 /// numeric fields - centralized here to avoid repeating the logic in
@@ -123,7 +108,7 @@ impl<'a> Table<'a> {
         let b_s = if equal {
             fmt(b)
         } else {
-            format!("{} ({})", fmt(b), pct_delta(a, b))
+            format!("{} ({})", fmt(b), compare_util::pct_delta(a, b))
         };
         let marker = if equal {
             self.pal.good("=")

@@ -10,6 +10,7 @@ use crate::cmd;
 use crate::rom;
 use crate::rom::patch::PatchOp;
 use crate::rom::reader::Reader;
+use crate::rom::types::ParsedRom;
 
 /// Parses every `--set-strap`, `--set-strap-reg`, `--retag-strap`,
 /// `--timing`, `--pp-*`, `--vram-size-mb` and `--hex` argument of the
@@ -115,6 +116,95 @@ fn build_ops(cmd: &Command) -> Result<Vec<PatchOp>, String> {
     Ok(ops)
 }
 
+/// Power-sanity guardrails for the `--pp-tdp` edits, shared with the
+/// `check` findings (`rom::limits`). Every requested TDP is checked
+/// against the die envelope and against the ROM's own PowerPlay
+/// ceilings; a violation is refused unless `--force` says the user
+/// knows better. `--dry-run` never refuses - it reports the warnings
+/// so the plan can be inspected before committing to `--force`.
+fn guard_power(
+    ops: &[PatchOp],
+    parsed: &ParsedRom,
+    force: bool,
+    dry_run: bool,
+) -> Result<(), ExitCode> {
+    let die = rom::limits::detect_die(parsed);
+    let pt = parsed.powerplay.powertune.as_ref();
+
+    for op in ops {
+        let watts = match op {
+            PatchOp::PpTdp { watts } => *watts as u32,
+            _ => continue,
+        };
+        let stock_tdp = pt.map_or(0, |p| p.tdp_w as u32);
+
+        // Die envelope first: a value outside the family's physical
+        // range (P10 up to ~237 W) is nonsense, not a tuning choice.
+        match rom::limits::SafeTdp::try_new(watts, die) {
+            Err(e) => {
+                let msg = e.message();
+                if dry_run {
+                    println!("  warning: {msg} (dry run - nothing written)");
+                } else if force {
+                    println!("  warning: {msg} (--force - writing anyway)");
+                } else {
+                    eprintln!(
+                        "error: {msg}\n\
+                         hint: run with --force to write it anyway - the card may not \
+                         boot, and the SMC may clamp or ignore the value"
+                    );
+                    return Err(ExitCode::from(cmd::EXIT_ERROR));
+                }
+            }
+            Ok(safe) if safe.is_unusual() => {
+                println!("  warning: {}", safe.unusual_message());
+            }
+            _ => {}
+        }
+
+        // Relational ceilings: the ROM itself declares how far its
+        // power management is willing to go. A ceiling that is at
+        // least 15% above the nominal TDP is a real headroom cap and
+        // blocks; a ceiling within 15% of the nominal TDP is stock
+        // filler (common: 125 W on a 120 W RX 570) and only warns.
+        if let Some(pt) = pt {
+            let maxdeliv = pt.max_power_delivery_limit_w as u32;
+            let configurable = pt.configurable_tdp_w as u32;
+            let real_ceiling = maxdeliv >= stock_tdp.saturating_mul(115) / 100;
+            if real_ceiling && watts > maxdeliv {
+                let msg = format!(
+                    "TDP {watts} W exceeds the {maxdeliv} W max power delivery this ROM \
+                     declares (nominal TDP {stock_tdp} W)"
+                );
+                if dry_run {
+                    println!("  warning: {msg} (dry run - nothing written)");
+                } else if force {
+                    println!("  warning: {msg} (--force - writing anyway)");
+                } else {
+                    eprintln!(
+                        "error: {msg}\n\
+                         hint: run with --force to write it anyway - the SMC clamps to the \
+                         declared ceiling and the extra watts only report as a mismatch"
+                    );
+                    return Err(ExitCode::from(cmd::EXIT_ERROR));
+                }
+            } else if !real_ceiling && maxdeliv > 0 && watts > maxdeliv {
+                println!(
+                    "  warning: TDP {watts} W exceeds this ROM's declared {maxdeliv} W max \
+                     power delivery - the SMC may clamp to it"
+                );
+            }
+            if configurable > 0 && watts > configurable {
+                println!(
+                    "  warning: TDP {watts} W exceeds the ROM's configurable limit of \
+                     {configurable} W - the SMC clamps to the safe value"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Parses one `--timing <clock> <field> <value>` group into a
 /// [`PatchOp::SetTiming`]. The value is clock cycles, or nanoseconds
 /// when it carries an `ns` suffix - then converted to cycles at the
@@ -204,6 +294,7 @@ pub fn run(
     rom_path: &Path,
     out_path: &Path,
     dry_run: bool,
+    force: bool,
     fix_checksum: bool,
     set_strap: Vec<String>,
     set_strap_reg: Vec<String>,
@@ -223,6 +314,7 @@ pub fn run(
         rom: rom_path.to_path_buf(),
         out: out_path.to_path_buf(),
         dry_run,
+        force,
         fix_checksum,
         set_strap,
         set_strap_reg,
@@ -294,19 +386,29 @@ pub fn run(
     };
 
     // Input checksum: refuse to patch a corrupt image unless repairing.
-    let input_valid = match rom::parse_rom(rom_path) {
-        Ok(r) => r.header.checksum_valid,
+    // The parsed image is kept for the power-sanity guardrails below
+    // (die envelope + the ROM's own PowerPlay ceilings).
+    let parsed = match rom::parse_rom(rom_path) {
+        Ok(r) => r,
         Err(e) => {
             eprintln!("error reading '{}': {e:#}", rom_path.display());
             return ExitCode::from(cmd::EXIT_ERROR);
         }
     };
+    let input_valid = parsed.header.checksum_valid;
     if !input_valid && !fix_checksum {
         eprintln!(
             "error: input ROM checksum is invalid - refusing to patch a corrupt image \
              (run with --fix-checksum to repair it)"
         );
         return ExitCode::from(cmd::EXIT_ERROR);
+    }
+
+    // Power-sanity guardrails for --pp-tdp: reject values that make no
+    // physical sense for the die, and values above the ROM's declared
+    // power ceilings - unless --force says the user knows better.
+    if let Err(code) = guard_power(&ops, &parsed, force, dry_run) {
+        return code;
     }
 
     // Repair path: --fix-checksum repairs the input first, so the edits

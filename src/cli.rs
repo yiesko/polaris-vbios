@@ -188,6 +188,12 @@ pub enum Command {
         /// Show the edit plan and verification, write nothing
         #[arg(long)]
         dry_run: bool,
+        /// Force through the power-sanity guardrails: a --pp-tdp that
+        /// is absurd/too-low for the ROM's die, or above the ROM's
+        /// declared max power delivery. Other guards (checksum, clock
+        /// hard limits, truncation) still refuse
+        #[arg(long)]
+        force: bool,
         /// Recompute the legacy checksum; also allows patching an image
         /// whose input checksum is already invalid (repair)
         #[arg(long)]

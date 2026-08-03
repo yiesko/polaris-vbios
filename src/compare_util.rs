@@ -1,6 +1,22 @@
 use crate::render::color::Palette;
 use crate::rom::types::ParsedRom;
 
+/// Percent delta `(b - a) / a`, formatted with sign. `a == 0` has no
+/// well-defined percent variation, so we show a neutral indicator
+/// instead of dividing by zero. Shared by the compare reports (row
+/// deltas) and the patch plan (TDP edit delta).
+pub fn pct_delta(a: f64, b: f64) -> String {
+    if a == 0.0 {
+        if b == 0.0 {
+            "0%".to_string()
+        } else {
+            "n/a".to_string()
+        }
+    } else {
+        format!("{:+.1}%", (b - a) / a * 100.0)
+    }
+}
+
 /// One group of "other fields": register label (or "RAW") + its
 /// (field, value) pairs.
 pub type RegGroup = (String, Vec<(String, String)>);

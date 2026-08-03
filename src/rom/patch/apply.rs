@@ -4,6 +4,7 @@ use super::limits::HardLimitRec;
 use super::limits::find_strap;
 use super::map::{RomMap, map_rom, overlaps_layout, structure_contains};
 use super::types::{Diff, PatchOp, PatchReport};
+use crate::compare_util;
 use crate::rom::header;
 use crate::rom::locate;
 use crate::rom::pci;
@@ -497,7 +498,10 @@ fn apply_one(
                 report,
                 off,
                 &watts.to_le_bytes(),
-                &format!("PowerTune TDP: {old} W -> {watts} W"),
+                &format!(
+                    "PowerTune TDP: {old} W -> {watts} W ({})",
+                    compare_util::pct_delta(old as f64, *watts as f64)
+                ),
             )
         }
         PatchOp::Hex { offset, bytes } => {
