@@ -151,6 +151,16 @@ pub fn register(index: u16) -> Option<&'static TimingRegister> {
     KNOWN.iter().find(|r| r.index == index)
 }
 
+/// The timing fields users understand at a glance. Everything else
+/// (write delays, CRC, arbiter fields, registers with no known layout)
+/// is summarized per clock by the callers.
+pub const CORE_TIMINGS: &[&str] = &[
+    "tCL", "tRCDW", "tRCDWA", "tRCDR", "tRCDRA", "tRRD", "tRC", "tRP", "tRFC", "tFAW",
+];
+
+/// Classic timing set, shown with ns values alongside the cycles.
+pub const CLASSIC_NS: &[&str] = &["tRC", "tRFC", "tRP", "tRRD", "tFAW"];
+
 /// Cycles → nanoseconds at the given memory clock.
 pub fn ns(cycles: u32, clock_mhz: f64) -> f64 {
     cycles as f64 * 1000.0 / clock_mhz

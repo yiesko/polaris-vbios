@@ -88,13 +88,6 @@ pub(super) fn compare_straps(
     let clocks_b: BTreeSet<i64> = b.vram.straps.iter().map(|s| key(s.clock_mhz)).collect();
     let all_clocks: BTreeSet<i64> = clocks_a.union(&clocks_b).copied().collect();
 
-    // The timing fields users understand at a glance. Everything else
-    // (write delays, CRC, arbiter fields, registers with no known
-    // layout) is summarized per clock below the matrix.
-    const CORE_TIMINGS: &[&str] = &[
-        "tCL", "tRCDW", "tRCDWA", "tRCDR", "tRCDRA", "tRRD", "tRC", "tRP", "tRFC", "tFAW",
-    ];
-
     let clocks: Vec<i64> = all_clocks.into_iter().collect();
 
     // Core timing x clock matrix: rows are timing fields, columns are
@@ -102,53 +95,29 @@ pub(super) fn compare_straps(
     // memory-clock cycles; differing cells are highlighted, rows with
     // no differences are hidden under --diff-only.
     t.note(&pal.label("\n  Core timings per clock (cycles, A/B; · = no strap at this clock):"));
-    let header_row = format!(
-        "  {:<24} {}\n",
-        "timing",
-        clocks
-            .iter()
-            .map(|clk| format!("{clk:<8}"))
-            .collect::<Vec<_>>()
-            .join("")
-    );
-    t.note(header_row.trim_end());
-    for field in CORE_TIMINGS {
-        let cells: Vec<(Option<u32>, Option<u32>)> = clocks
-            .iter()
-            .map(|clk| {
-                (
-                    compare_util::field_at(a, *clk, field),
-                    compare_util::field_at(b, *clk, field),
-                )
-            })
-            .collect();
-        let row_differs = cells.iter().any(|(x, y)| x != y);
-        if diff_only && !row_differs {
-            continue;
-        }
-        let mut line = String::new();
-        for (x, y) in &cells {
-            let content = match (x, y) {
-                (Some(xv), Some(yv)) if xv == yv => format!("{xv}="),
-                (Some(xv), Some(yv)) => format!("{xv}/{yv}"),
-                (Some(xv), None) => format!("{xv}/-"),
-                (None, Some(yv)) => format!("-/{yv}"),
-                (None, None) => "·".to_string(),
-            };
-            let padded = format!("{content:<8}");
-            let colored = match (x, y) {
-                (None, None) => padded,
-                (Some(xv), Some(yv)) if xv == yv => pal.good(&padded),
-                _ => pal.warn(&padded),
-            };
-            line.push_str(&colored);
-        }
-        let label = if row_differs {
-            format!("{} {:<22}", pal.warn("≠"), field)
-        } else {
-            format!("  {:<22}", field)
+    let cell = |field: &str, clk: i64| -> (String, bool) {
+        let x = compare_util::field_at(a, clk, field);
+        let y = compare_util::field_at(b, clk, field);
+        let content = match (x, y) {
+            (Some(xv), Some(yv)) if xv == yv => format!("{xv}="),
+            (Some(xv), Some(yv)) => format!("{xv}/{yv}"),
+            (Some(xv), None) => format!("{xv}/-"),
+            (None, Some(yv)) => format!("-/{yv}"),
+            (None, None) => "·".to_string(),
         };
-        t.note(&format!("  {label} {line}"));
+        (content, x != y)
+    };
+    let matrix = compare_util::core_matrix(
+        pal,
+        crate::rom::timings::CORE_TIMINGS,
+        &clocks,
+        8,
+        true,
+        diff_only,
+        cell,
+    );
+    if !matrix.is_empty() {
+        t.note(matrix.trim_end());
     }
     t.note(&pal.label("  (= equal, ≠ differs, · = absent; values are memory-clock cycles)"));
 
@@ -163,7 +132,7 @@ pub(super) fn compare_straps(
         compare_util::strap_other_groups(
             &strap.values,
             &rom.vram.strap_reg_indices,
-            CORE_TIMINGS,
+            crate::rom::timings::CORE_TIMINGS,
             |idx| {
                 if let Some(name) = reg_names.and_then(|n| n.get(&idx)) {
                     format!("0x{idx:X}({name})")

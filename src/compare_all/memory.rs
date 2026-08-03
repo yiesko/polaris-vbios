@@ -88,13 +88,6 @@ pub(super) fn straps_section(
             .collect::<Vec<_>>(),
     );
 
-    // The timing fields users understand at a glance. Everything else
-    // (write delays, CRC, arbiter fields, registers with no known
-    // layout) is summarized per clock below the matrix.
-    const CORE_TIMINGS: &[&str] = &[
-        "tCL", "tRCDW", "tRCDWA", "tRCDR", "tRCDRA", "tRRD", "tRC", "tRP", "tRFC", "tFAW",
-    ];
-
     // Match by clock, now across N ROMs - for each clock that appears
     // in ANY of the ROMs, show whether the registers match across all
     // ROMs that have that clock.
@@ -113,60 +106,45 @@ pub(super) fn straps_section(
     // every ROM in order, e.g. "10/8/10"; · = no strap at this clock.
     // Cells with any difference are highlighted, rows with no
     // differences are hidden under --diff-only.
+    // Core timing x clock matrix: rows are timing fields, columns are
+    // the strap clocks present in any ROM. Each cell shows the value of
+    // every ROM in order, e.g. "10/8/10"; · = no strap at this clock.
+    // Cells with any difference are highlighted, rows with no
+    // differences are hidden under --diff-only.
     // cell_w: 4 chars per ROM (3 digits + separator), plus a padding
     // slack so cells never glue together.
     let cell_w = roms.len() * 4 + 1;
     m.note(&pal.label(
         "\n  Core timings per clock (cycles, values in ROM order; · = no strap at this clock):",
     ));
-    let header_row = format!(
-        "  {:<24} {}\n",
-        "timing",
-        clocks
+    let cell = |field: &str, clk: i64| -> (String, bool) {
+        let vals: Vec<Option<u32>> = roms
             .iter()
-            .map(|clk| format!("{clk:<cell_w$}"))
+            .map(|r| compare_util::field_at(r, clk, field))
+            .collect();
+        let present: Vec<u32> = vals.iter().filter_map(|x| *x).collect();
+        let all_equal = present.len() == vals.len() && present.windows(2).all(|w| w[0] == w[1]);
+        let content = vals
+            .iter()
+            .map(|v| match v {
+                Some(x) => x.to_string(),
+                None => "·".to_string(),
+            })
             .collect::<Vec<_>>()
-            .join("")
+            .join("/");
+        (content, !all_equal)
+    };
+    let matrix = compare_util::core_matrix(
+        pal,
+        crate::rom::timings::CORE_TIMINGS,
+        &clocks,
+        cell_w,
+        true,
+        diff_only,
+        cell,
     );
-    m.note(header_row.trim_end());
-    for field in CORE_TIMINGS {
-        let mut cells = String::new();
-        let mut row_differs = false;
-        for clk in &clocks {
-            let vals: Vec<Option<u32>> = roms
-                .iter()
-                .map(|r| compare_util::field_at(r, *clk, field))
-                .collect();
-            let present: Vec<u32> = vals.iter().filter_map(|x| *x).collect();
-            let all_equal = present.len() == vals.len() && present.windows(2).all(|w| w[0] == w[1]);
-            if !all_equal {
-                row_differs = true;
-            }
-            let content = vals
-                .iter()
-                .map(|v| match v {
-                    Some(x) => x.to_string(),
-                    None => "·".to_string(),
-                })
-                .collect::<Vec<_>>()
-                .join("/");
-            let padded = format!("{content:<cell_w$}");
-            let colored = if all_equal {
-                pal.good(&padded)
-            } else {
-                pal.warn(&padded)
-            };
-            cells.push_str(&colored);
-        }
-        if diff_only && !row_differs {
-            continue;
-        }
-        let label = if row_differs {
-            format!("{} {:<22}", pal.warn("≠"), field)
-        } else {
-            format!("  {:<22}", field)
-        };
-        m.note(&format!("  {label} {cells}"));
+    if !matrix.is_empty() {
+        m.note(matrix.trim_end());
     }
     m.note(&pal.label("  (= equal, ≠ differs, · = absent; values are memory-clock cycles)"));
 
@@ -181,7 +159,7 @@ pub(super) fn straps_section(
         compare_util::strap_other_groups(
             &strap.values,
             &rom.vram.strap_reg_indices,
-            CORE_TIMINGS,
+            crate::rom::timings::CORE_TIMINGS,
             |idx| format!("0x{idx:X}"),
         )
     };

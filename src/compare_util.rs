@@ -23,6 +23,59 @@ pub fn field_at(rom: &ParsedRom, clk: i64, field: &str) -> Option<u32> {
     })
 }
 
+/// Renders a timing x clock matrix: rows are timing fields, columns
+/// are clocks. `cell` provides each cell's content plus whether it
+/// differs from the reference; rows with no differing cell are hidden
+/// under `diff_only`, and with `color` set, differing cells are `warn`
+/// and equal ones `good`.
+pub fn core_matrix(
+    pal: &Palette,
+    rows: &[&str],
+    clocks: &[i64],
+    cell_w: usize,
+    color: bool,
+    diff_only: bool,
+    cell: impl Fn(&str, i64) -> (String, bool),
+) -> String {
+    let mut out = String::new();
+    out.push_str(&pal.label(&format!(
+        "  {:<24} {}\n",
+        "timing",
+        clocks
+            .iter()
+            .map(|clk| format!("{clk:<cell_w$}"))
+            .collect::<Vec<_>>()
+            .join("")
+    )));
+    for field in rows {
+        let mut cells = String::new();
+        let mut row_differs = false;
+        for clk in clocks {
+            let (content, differs) = cell(field, *clk);
+            row_differs |= differs;
+            let padded = format!("{content:<cell_w$}");
+            let colored = if color && differs {
+                pal.warn(&padded)
+            } else if color {
+                pal.good(&padded)
+            } else {
+                padded
+            };
+            cells.push_str(&colored);
+        }
+        if diff_only && !row_differs {
+            continue;
+        }
+        let label = if row_differs {
+            format!("{} {:<22}", pal.warn("≠"), field)
+        } else {
+            format!("  {:<22}", field)
+        };
+        out.push_str(&format!("  {label} {cells}\n"));
+    }
+    out
+}
+
 pub fn note_push(buf: &mut String, any_row: &mut bool, s: &str) {
     *any_row = true;
     buf.push_str(s);

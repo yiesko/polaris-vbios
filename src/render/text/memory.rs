@@ -1,6 +1,6 @@
 use super::{RegNames, heading, kv};
+use crate::compare_util;
 use crate::render::color::Palette;
-use crate::render::color::pad;
 use crate::render::sections::Section;
 use crate::rom::types::ParsedRom;
 
@@ -53,26 +53,35 @@ pub(super) fn render_straps(rom: &ParsedRom, pal: &Palette, reg_names: RegNames)
             .join(", ")
     )));
     s.push_str(&pal.label(
-        "Timing values below are in memory-clock cycles (ns in parentheses); registers without a known timing layout are shown as raw hex.\n",
+        "Timing values are in memory-clock cycles (ns in parentheses for tRC/tRFC/tRP/tRRD/tFAW); \
+         registers without a known timing layout are shown as raw hex.\n",
     ));
     if let Some(names) = reg_names {
-        let legend: Vec<String> = v
-            .strap_reg_indices
-            .iter()
-            .enumerate()
-            .filter_map(|(i, r)| names.get(r).map(|name| format!("reg{i}=0x{r:X}({name})")))
-            .collect();
-        if legend.is_empty() {
+        let matched = v.strap_reg_indices.iter().any(|r| names.contains_key(r));
+        if !matched {
             s.push_str(
                 &pal.warn("(--reg-names loaded, but no index from this ROM matches the file)\n"),
             );
-        } else {
-            s.push_str(&pal.good(&format!(
-                "User annotations (--reg-names, not confirmed by AMD): {}\n",
-                legend.join(", ")
-            )));
         }
     }
+
+    // Everything outside the core timing set, grouped by the register
+    // it lives in (name + offset); raw hex for registers with no known
+    // layout, user annotations from --reg-names applied inline.
+    let groups_at = |strap: &crate::rom::types::MemoryStrap| {
+        crate::compare_util::strap_other_groups(
+            &strap.values,
+            &v.strap_reg_indices,
+            crate::rom::timings::CORE_TIMINGS,
+            |idx| {
+                if let Some(name) = reg_names.and_then(|n| n.get(&idx)) {
+                    format!("0x{idx:X}({name})")
+                } else {
+                    format!("0x{idx:X}")
+                }
+            },
+        )
+    };
 
     let mut by_block: std::collections::BTreeMap<u8, Vec<&crate::rom::types::MemoryStrap>> =
         std::collections::BTreeMap::new();
@@ -99,17 +108,60 @@ pub(super) fn render_straps(rom: &ParsedRom, pal: &Palette, reg_names: RegNames)
         s.push('\n');
         s.push_str(&pal.title(&format!("Block {blk}{module_tag}")));
         s.push('\n');
-        for strap in straps {
+
+        // Core timings x clock matrix: rows are the timing fields users
+        // understand at a glance, columns are the straps of this block
+        // (one per clock). "219 (110 ns)" is the widest cell.
+        let cell_w = 12;
+        let clocks: Vec<i64> = straps
+            .iter()
+            .map(|st| st.clock_mhz.round() as i64)
+            .collect();
+        let cell = |field: &str, clk: i64| -> (String, bool) {
+            let content = match compare_util::field_at(rom, clk, field) {
+                Some(cycles) if crate::rom::timings::CLASSIC_NS.contains(&field) => format!(
+                    "{} ({} ns)",
+                    cycles,
+                    crate::rom::timings::ns(cycles, clk as f64).round() as u64
+                ),
+                Some(cycles) => cycles.to_string(),
+                None => "·".to_string(),
+            };
+            (content, false)
+        };
+        s.push_str(&pal.label("  Core timings per clock (cycles; · = no strap at this clock):\n"));
+        s.push_str(&compare_util::core_matrix(
+            pal,
+            crate::rom::timings::CORE_TIMINGS,
+            &clocks,
+            cell_w,
+            false,
+            false,
+            cell,
+        ));
+        s.push_str(&pal.label("  (ns shown for tRC/tRFC/tRP/tRRD/tFAW)\n"));
+
+        s.push_str(&pal.label("\n  Other fields & raw registers per clock:\n"));
+        for st in &straps {
             s.push_str(&format!(
-                "  {} {} {}\n",
-                pal.value(&pad(&format!("{:.0} MHz", strap.clock_mhz), 10)),
-                pad(&format!("({:.2} Gbps effective)", strap.effective_gbps), 14),
-                crate::rom::timings::fmt_strap(
-                    &strap.values,
-                    &v.strap_reg_indices,
-                    strap.clock_mhz
-                )
+                "  {}\n",
+                pal.value(&format!("{:.0} MHz", st.clock_mhz))
             ));
+            let lines: Vec<String> = groups_at(st)
+                .iter()
+                .map(|(label, fields)| {
+                    let joined = fields
+                        .iter()
+                        .map(|(name, value)| format!("{name}={value}"))
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    format!("{label}: {joined}")
+                })
+                .collect();
+            for line in compare_util::align_other_lines(pal, &lines) {
+                s.push_str(&line);
+                s.push('\n');
+            }
         }
     }
 
