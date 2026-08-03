@@ -46,6 +46,13 @@ pub(super) fn header_section(
             .collect::<Vec<_>>(),
     );
     m.row(
+        "Subsystem device",
+        &roms
+            .iter()
+            .map(|r| format!("0x{:04X}", r.header.subsystem_device_id))
+            .collect::<Vec<_>>(),
+    );
+    m.row(
         "Checksum valid",
         &roms
             .iter()

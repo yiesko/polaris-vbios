@@ -37,6 +37,19 @@ pub(super) fn vram_section(
             })
             .collect::<Vec<_>>(),
     );
+    let per_module = |m: &[crate::rom::types::VramModule]| {
+        m.iter()
+            .map(|m| format!("{}:{}", m.index, m.memory_size_mb))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    m.row(
+        "Memory size (MB) per module",
+        &roms
+            .iter()
+            .map(|r| per_module(&r.vram.modules))
+            .collect::<Vec<_>>(),
+    );
     s.push_str(&m.finish("(nothing differs in this section)"));
     s
 }

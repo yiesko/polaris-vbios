@@ -43,6 +43,11 @@ pub(super) fn compare_header(
         .unwrap_or_else(|| format!("0x{:04X}", b.header.subsystem_vendor_id));
     t.row("Subsystem vendor", vend_a, vend_b);
     t.row(
+        "Subsystem device",
+        format!("0x{:04X}", a.header.subsystem_device_id),
+        format!("0x{:04X}", b.header.subsystem_device_id),
+    );
+    t.row(
         "Checksum valid",
         a.header.checksum_valid,
         b.header.checksum_valid,

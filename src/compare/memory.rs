@@ -16,6 +16,25 @@ pub(super) fn compare_vram(a: &ParsedRom, b: &ParsedRom, pal: &Palette, diff_onl
     let pn_a = compare_util::part_numbers(&a.vram.modules);
     let pn_b = compare_util::part_numbers(&b.vram.modules);
     t.row("Part numbers in ROM", pn_a.join(", "), pn_b.join(", "));
+    // Geometry matters: --vram-size-mb / --import-vram change exactly
+    // these fields, so compare them module by module.
+    let per_module = |m: &[crate::rom::types::VramModule],
+                      f: &dyn Fn(&crate::rom::types::VramModule) -> String| {
+        m.iter()
+            .map(|m| format!("{}:{}", m.index, f(m)))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    t.row(
+        "Memory size (MB) per module",
+        per_module(&a.vram.modules, &|m| m.memory_size_mb.to_string()),
+        per_module(&b.vram.modules, &|m| m.memory_size_mb.to_string()),
+    );
+    t.row(
+        "Memory vendor (raw) per module",
+        per_module(&a.vram.modules, &|m| m.vendor_id_raw.to_string()),
+        per_module(&b.vram.modules, &|m| m.vendor_id_raw.to_string()),
+    );
     s.push_str(&t.finish("(nothing differs in this section)"));
     s
 }
