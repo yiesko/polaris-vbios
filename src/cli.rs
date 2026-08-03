@@ -175,6 +175,30 @@ pub enum Command {
         /// unchecksummed or structure-overlapping writes are warned
         #[arg(long, num_args = 2, value_names = ["OFFSET", "BYTES"])]
         hex: Vec<String>,
+        /// Copy device identity from a reference ROM: device-id into
+        /// every PCI option ROM image (legacy + EFI PCIR) and subsystem
+        /// vendor/device into the ATOM header. Warns (non-blocking) when
+        /// the two ROMs' device-ids map to different dies
+        #[arg(long, value_name = "REF_ROM")]
+        clone_ids: Option<PathBuf>,
+        /// Replace the entire VRAM_Info table (VRAM modules, memory
+        /// straps and MC tuning) with the reference ROM's
+        /// factory-calibrated block. The reference must parse cleanly,
+        /// be internally coherent and fit the destination's table slot
+        #[arg(long, value_name = "REF_ROM")]
+        import_vram: Option<PathBuf>,
+        /// Declared VRAM geometry only: set usMemorySize/ucDensity on
+        /// every VRAM module, without touching the straps ("geometry
+        /// changes, timing doesn't"). Refused unless a strap block is
+        /// calibrated for the requested size, or
+        /// --i-understand-strap-mismatch is given. Mutually exclusive
+        /// with --import-vram
+        #[arg(long, value_name = "MB")]
+        vram_size_mb: Option<String>,
+        /// Accept a --vram-size-mb edit whose straps are calibrated for
+        /// a different density (timing data stays unchanged)
+        #[arg(long)]
+        i_understand_strap_mismatch: bool,
     },
     /// List available sections
     ListSections,

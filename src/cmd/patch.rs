@@ -2,15 +2,19 @@
 
 use std::fs;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use crate::cli::Command;
+use crate::cmd;
 use crate::rom;
-use crate::{cmd, rom::patch::PatchOp};
+use crate::rom::patch::PatchOp;
+use crate::rom::reader::Reader;
 
 /// Parses every `--set-strap`, `--set-strap-reg`, `--retag-strap`,
-/// `--pp-*` and `--hex` argument of the patch command into ops.
+/// `--pp-*`, `--vram-size-mb` and `--hex` argument of the patch command
+/// into ops. Reference-ROM ops (`--clone-ids`, `--import-vram`) are
+/// resolved later by [`run`] because they need file I/O.
 fn build_ops(cmd: &Command) -> Result<Vec<PatchOp>, String> {
     let Command::Patch {
         set_strap,
@@ -21,6 +25,9 @@ fn build_ops(cmd: &Command) -> Result<Vec<PatchOp>, String> {
         pp_vddc,
         pp_tdp,
         hex,
+        vram_size_mb,
+        i_understand_strap_mismatch,
+        import_vram,
         ..
     } = cmd
     else {
@@ -80,7 +87,63 @@ fn build_ops(cmd: &Command) -> Result<Vec<PatchOp>, String> {
             bytes,
         });
     }
+    // Two answers to the same question ("what size does this ROM
+    // declare?") is ambiguous by nature: the import brings the donor's
+    // whole calibrated table, the manual edit writes only geometry.
+    if import_vram.is_some() && vram_size_mb.is_some() {
+        return Err(
+            "--import-vram and --vram-size-mb are mutually exclusive: the import brings the \
+             donor's whole factory-calibrated table, the manual edit writes geometry only"
+                .to_string(),
+        );
+    }
+    if let Some(n) = vram_size_mb {
+        let size_mb: u32 = cmd::parse_num(n, "VRAM size (MB)")?;
+        if size_mb == 0 {
+            return Err("--vram-size-mb must be a positive size in MB".to_string());
+        }
+        ops.push(PatchOp::VramSizeMb {
+            size_mb,
+            understand: *i_understand_strap_mismatch,
+        });
+    }
     Ok(ops)
+}
+
+/// Reads a reference ROM and resolves the values `--clone-ids` needs:
+/// the device-id (first PCI option ROM image) and the subsystem
+/// vendor/device pair of the ATOM header.
+fn resolve_clone_ids(ref_path: &Path) -> Result<PatchOp, String> {
+    let data =
+        fs::read(ref_path).map_err(|e| format!("error reading '{}': {e}", ref_path.display()))?;
+    let r = Reader::new(&data);
+    let atom_ptr = r
+        .u16(0x48)
+        .map_err(|e| format!("'{}' is not a valid ROM: {e}", ref_path.display()))?
+        as usize;
+    if r.bytes(atom_ptr + 4, 4)
+        .map_err(|e| format!("'{}' has no ATOM header: {e}", ref_path.display()))?
+        != b"ATOM"
+    {
+        return Err(format!("'{}' has no ATOM header", ref_path.display()));
+    }
+    let images =
+        rom::pci::walk_pci_images(&r).map_err(|e| format!("'{}': {e}", ref_path.display()))?;
+    let img = images
+        .first()
+        .ok_or_else(|| format!("'{}' has no PCI option ROM image", ref_path.display()))?;
+    let subsystem_vendor = r
+        .u16(atom_ptr + 0x18)
+        .map_err(|e| format!("'{}': {e}", ref_path.display()))?;
+    let subsystem_device = r
+        .u16(atom_ptr + 0x1A)
+        .map_err(|e| format!("'{}': {e}", ref_path.display()))?;
+    Ok(PatchOp::CloneIds {
+        device: img.device_id,
+        subsystem_vendor,
+        subsystem_device,
+        ref_device_id: img.device_id,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -97,6 +160,10 @@ pub fn run(
     pp_vddc: Vec<String>,
     pp_tdp: Vec<String>,
     hex: Vec<String>,
+    clone_ids: Option<PathBuf>,
+    import_vram: Option<PathBuf>,
+    vram_size_mb: Option<String>,
+    i_understand_strap_mismatch: bool,
 ) -> ExitCode {
     let cmd = Command::Patch {
         rom: rom_path.to_path_buf(),
@@ -111,14 +178,44 @@ pub fn run(
         pp_vddc,
         pp_tdp,
         hex,
+        clone_ids,
+        import_vram,
+        vram_size_mb,
+        i_understand_strap_mismatch,
     };
-    let ops = match build_ops(&cmd) {
+    let mut ops = match build_ops(&cmd) {
         Ok(o) => o,
         Err(e) => {
             eprintln!("error: {e}");
             return ExitCode::from(cmd::EXIT_ERROR);
         }
     };
+    // Reference-ROM ops need file I/O: resolve them here, before the
+    // emptiness check, so e.g. `--import-vram` alone is a valid edit.
+    let Command::Patch {
+        clone_ids,
+        import_vram,
+        ..
+    } = &cmd
+    else {
+        unreachable!()
+    };
+    if let Some(ref_path) = clone_ids {
+        match resolve_clone_ids(ref_path) {
+            Ok(op) => ops.push(op),
+            Err(e) => {
+                eprintln!("error: {e}");
+                return ExitCode::from(cmd::EXIT_ERROR);
+            }
+        }
+    }
+    if let Some(ref_path) = import_vram {
+        let data = match cmd::read_rom(ref_path) {
+            Ok(d) => d,
+            Err(code) => return code,
+        };
+        ops.push(PatchOp::ImportVram { donor: data });
+    }
     if ops.is_empty() && !fix_checksum {
         eprintln!(
             "error: nothing to do - add an edit (--set-strap, --pp-*, --hex...) or --fix-checksum"

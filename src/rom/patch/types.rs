@@ -24,6 +24,27 @@ pub enum PatchOp {
     PpTdp { watts: u16 },
     /// Write raw bytes at an absolute ROM offset.
     Hex { offset: usize, bytes: Vec<u8> },
+    /// Copy device identity from a reference ROM: device-id into every
+    /// PCI option ROM image (legacy + EFI PCIR), subsystem vendor/device
+    /// into the ATOM header. `ref_device_id` drives the die-mismatch
+    /// warning (compared against the destination's own PCIR device-id).
+    CloneIds {
+        device: u16,
+        subsystem_vendor: u16,
+        subsystem_device: u16,
+        ref_device_id: u16,
+    },
+    /// Replace the whole VRAM_Info table (VRAM modules, memory straps
+    /// and the relative sub-tables adjust/pertile/mcphy/dramremap) with
+    /// the reference ROM's factory-calibrated block. The donor image is
+    /// carried in full and re-validated here, so `apply_ops` stays pure.
+    ImportVram { donor: Vec<u8> },
+    /// Change the declared VRAM geometry only: `usMemorySize` and
+    /// `ucDensity` on every VRAM module. Straps are never touched
+    /// ("geometry changes, timing doesn't"). Refused when no strap block
+    /// is calibrated for the requested size unless `understand` is set
+    /// (the `--i-understand-strap-mismatch` override).
+    VramSizeMb { size_mb: u32, understand: bool },
 }
 
 /// A single byte-range change: where, what it was, what it became.

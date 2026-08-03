@@ -327,6 +327,48 @@ polaris-vbios patch rom.rom --out fixed.rom --fix-checksum
 polaris-vbios patch rom.rom --out new.rom --pp-sclk 2 1400 --dry-run
 ```
 
+### Identity and VRAM editing
+
+- `--clone-ids <REF.ROM>` copies the device identity from a reference
+  ROM: the device-id into every PCI option ROM image (legacy + EFI PCIR)
+  and the subsystem vendor/device pair into the ATOM header. Warns
+  (non-blocking) when the two ROMs' device-ids map to different dies
+  (e.g. cloning a Polaris 10 id onto a Polaris 12 ROM).
+- `--import-vram <REF.ROM>` replaces the **entire** VRAM_Info table -
+  VRAM modules, memory straps and the MC tuning sub-tables - with the
+  reference ROM's factory-calibrated block. This is the safe way to
+  change memory size: it brings a coherent, calibrated set (e.g. a 4 GB
+  RX 570 ROM whose board actually holds 8 GB Hynix H5GC8H24AJR can be
+  made into a proper 8 GB ROM by importing the matching official 8 GB
+  BIOS). REFUSED when the reference is internally incoherent (strap
+  blocks targeting empty modules, mixed densities), when its format
+  differs, or when its table does not fit the destination's layout.
+- `--vram-size-mb <N>` writes geometry only: `usMemorySize`/`ucDensity`
+  on every VRAM module, **without touching the straps** (geometry
+  changes, timing doesn't). REFUSED unless a strap block is calibrated
+  for the requested size; with `--i-understand-strap-mismatch` the
+  edit is forced after printing the mismatch (modules, straps, and a
+  concrete value divergence at a shared clock). `--import-vram` is the
+  proper path for size changes; `--vram-size-mb` is the escape hatch.
+  Mutually exclusive with `--import-vram`; `--clone-ids` composes with
+  both.
+
+```sh
+# Make the 4 GB XFX RX 570 ROM (8 GB physical VRAM) an 8 GB ROM
+polaris-vbios patch XFX.RX570.4096.170419.rom --out xfx8gb.rom \
+  --import-vram 247426.rom --dry-run            # inspect first
+polaris-vbios patch XFX.RX570.4096.170419.rom --out xfx8gb.rom \
+  --import-vram 247426.rom                      # write
+
+# Same board, different brand: clone identity + import VRAM in one go
+polaris-vbios patch other-brand.rom --out fixed.rom \
+  --clone-ids 247426.rom --import-vram 247426.rom
+
+# Declared geometry only (straps stay calibrated for the old density)
+polaris-vbios patch rom.rom --out geom.rom \
+  --vram-size-mb 8192 --i-understand-strap-mismatch
+```
+
 Every edit is reported as `offset  old -> new  (description)` with
 old/new values in human units, e.g.:
 

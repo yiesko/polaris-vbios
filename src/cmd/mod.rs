@@ -104,6 +104,10 @@ pub fn run(cmd: Command) -> ExitCode {
             pp_vddc,
             pp_tdp,
             hex,
+            clone_ids,
+            import_vram,
+            vram_size_mb,
+            i_understand_strap_mismatch,
         } => patch::run(
             &rom,
             &out,
@@ -117,6 +121,10 @@ pub fn run(cmd: Command) -> ExitCode {
             pp_vddc,
             pp_tdp,
             hex,
+            clone_ids,
+            import_vram,
+            vram_size_mb,
+            i_understand_strap_mismatch,
         ),
         Command::ListSections | Command::Completions { .. } | Command::Man => unreachable!(),
     }

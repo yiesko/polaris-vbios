@@ -4,8 +4,12 @@ use super::limits::HardLimitRec;
 use super::limits::find_strap;
 use super::map::{RomMap, map_rom, overlaps_layout, structure_contains};
 use super::types::{Diff, PatchOp, PatchReport};
+use crate::rom::header;
 use crate::rom::locate;
+use crate::rom::pci;
 use crate::rom::reader::Reader;
+use crate::rom::validate;
+use crate::rom::vram;
 
 /// Applies a list of ops to a ROM image in memory. Every edit is
 /// validated first: out-of-range, no-op, clock above the ROM's own
@@ -425,5 +429,322 @@ fn apply_one(
             guard_hex(map, &r, report, *offset, bytes.len())?;
             push_diff(&r, report, *offset, bytes, "raw hex")
         }
+        PatchOp::CloneIds {
+            device,
+            subsystem_vendor,
+            subsystem_device,
+            ref_device_id,
+        } => {
+            let images = pci::walk_pci_images(&r)?;
+            let dest_device = images
+                .first()
+                .map(|img| img.device_id)
+                .ok_or_else(|| anyhow::anyhow!("ROM has no PCI option ROM image"))?;
+            // Identity cloning is not blocked, but presenting one die
+            // as another deserves a loud, non-blocking warning.
+            match (
+                validate::die_for_device_id(dest_device),
+                validate::die_for_device_id(*ref_device_id),
+            ) {
+                (Some(dest), Some(reference)) if dest.0 != reference.0 => {
+                    report.warnings.push(format!(
+                        "device-id mismatch: this ROM claims a {} die but the reference claims \
+                         {} - the cloned id will present the reference's silicon",
+                        dest.0, reference.0
+                    ));
+                }
+                (None, _) | (_, None) => report.warnings.push(format!(
+                    "cannot compare dies (unknown device-id 0x{dest_device:04X}/\
+                     0x{ref_device_id:04X}) - cloning ids anyway"
+                )),
+                _ => {}
+            }
+            let mut changed = false;
+            for img in &images {
+                if !matches!(img.code_type, 0x00 | 0x03) {
+                    continue;
+                }
+                let off = img.pcir_offset + 6;
+                if push_diff(&r, report, off, &device.to_le_bytes(), "device-id (PCIR)")? {
+                    changed = true;
+                    if img.code_type == 0x03 {
+                        report.warnings.push(format!(
+                            "device-id write at 0x{off:X} targets the EFI/GOP image, outside \
+                             the legacy checksum region (no checksum covers it)"
+                        ));
+                    }
+                }
+            }
+            if !images.iter().any(|img| img.code_type == 0x03) {
+                report.warnings.push(
+                    "no EFI PCI image found - device-id cloned only into the legacy image"
+                        .to_string(),
+                );
+            }
+            changed |= push_diff(
+                &r,
+                report,
+                map.atom_ptr + 0x18,
+                &subsystem_vendor.to_le_bytes(),
+                "subsystem vendor-id (ATOM header)",
+            )?;
+            changed |= push_diff(
+                &r,
+                report,
+                map.atom_ptr + 0x1A,
+                &subsystem_device.to_le_bytes(),
+                "subsystem device-id (ATOM header)",
+            )?;
+            Ok(changed)
+        }
+        PatchOp::ImportVram { donor } => {
+            let dest_vram = vram_off()?;
+            let donor_map = map_rom(donor)?;
+            let donor_vram = donor_map
+                .vram_off
+                .ok_or_else(|| anyhow::anyhow!("reference ROM has no VRAM_Info table"))?;
+            let donor_r = Reader::new(donor);
+            let donor_mc =
+                header::master_table_offset(&donor_r, donor_map.mdt, "MC_InitParameter").ok();
+            let dest_mc = header::master_table_offset(&r, map.mdt, "MC_InitParameter").ok();
+            let donor_info = vram::parse_vram_info(&donor_r, donor_vram, donor_mc.unwrap_or(0))?;
+            let dest_info = vram::parse_vram_info(&r, dest_vram, dest_mc.unwrap_or(0))?;
+            if (donor_info.fmt_rev, donor_info.cont_rev) != (dest_info.fmt_rev, dest_info.cont_rev)
+            {
+                bail!(
+                    "VRAM_Info format mismatch: reference is {}.{} but this ROM is {}.{} \
+                     (only same-format transplants are supported)",
+                    donor_info.fmt_rev,
+                    donor_info.cont_rev,
+                    dest_info.fmt_rev,
+                    dest_info.cont_rev
+                );
+            }
+            // The donor must be internally coherent: straps calibrate a
+            // specific module, and straps are density-specific, so the
+            // populated modules must agree on density and size.
+            for strap in &donor_info.straps {
+                let module = donor_info
+                    .modules
+                    .get(strap.mem_block_id as usize)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "reference ROM is incoherent: strap block {} ({} MHz) targets a \
+                             missing VRAM module ({} declared)",
+                            strap.mem_block_id,
+                            strap.clock_mhz,
+                            donor_info.modules.len()
+                        )
+                    })?;
+                if module.vendor_id_raw == 0 && module.part_number.is_empty() {
+                    bail!(
+                        "reference ROM is incoherent: strap block {} targets the empty VRAM \
+                         module slot {} (no memory behind it)",
+                        strap.mem_block_id,
+                        strap.mem_block_id
+                    );
+                }
+            }
+            // The populated modules must agree on density and size -
+            // straps are calibrated per density, so a mixed set would
+            // claim one calibration for two different memories.
+            validate_donor_modules(&donor_r, donor_vram, &donor_info.modules)?;
+            let donor_size = donor_info.struct_size as usize;
+            let donor_bytes = donor
+                .get(donor_vram..donor_vram + donor_size)
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "reference VRAM_Info table ({donor_size} bytes) runs past the end of the \
+                     reference ROM"
+                    )
+                })?;
+            // Room check: the transplanted table must fit up to the next
+            // table referenced by the destination's Master Data Table.
+            let next_table = (0..header::MASTER_TABLE_NAMES.len())
+                .filter_map(|i| r.u16(map.mdt + 4 + i * 2).ok())
+                .map(usize::from)
+                .filter(|&off| off > dest_vram)
+                .min()
+                .unwrap_or(r.len());
+            if dest_vram + donor_size > next_table {
+                bail!(
+                    "reference VRAM_Info table ({donor_size} bytes) does not fit at \
+                     0x{dest_vram:X}: the next table starts at 0x{next_table:X} (room for {} \
+                     bytes) - refusing",
+                    next_table - dest_vram
+                );
+            }
+            let mut changed = push_diff(
+                &r,
+                report,
+                dest_vram,
+                donor_bytes,
+                "VRAM_Info import (modules, straps, MC tuning)",
+            )?;
+            // Zero the residue of the old, larger table: unreferenced
+            // now, but leaving stale geometry bytes behind is confusing.
+            let old_end = (dest_vram + dest_info.struct_size as usize).min(next_table);
+            let new_end = dest_vram + donor_size;
+            if new_end < old_end {
+                changed |= push_diff(
+                    &r,
+                    report,
+                    new_end,
+                    &vec![0; old_end - new_end],
+                    "VRAM_Info import (zero-fill residue)",
+                )?;
+            }
+            Ok(changed)
+        }
+        PatchOp::VramSizeMb {
+            size_mb,
+            understand,
+        } => {
+            if *size_mb > u16::MAX as u32 {
+                bail!(
+                    "--vram-size-mb {size_mb} exceeds the 65535 MB limit of the usMemorySize \
+                     field"
+                );
+            }
+            let density = if *size_mb % 1024 == 0 {
+                match *size_mb / 1024 {
+                    2 => 0x43,
+                    4 => 0x53,
+                    8 => 0x63,
+                    16 => 0x73,
+                    _ => bail!(
+                        "no density code maps to {size_mb} MB per module (supported: \
+                         2048/4096/8192/16384)"
+                    ),
+                }
+            } else {
+                bail!(
+                    "--vram-size-mb {size_mb} is not a multiple of 1024 (supported: \
+                     2048/4096/8192/16384)"
+                )
+            };
+            let dest_vram = vram_off()?;
+            let dest_mc = header::master_table_offset(&r, map.mdt, "MC_InitParameter").ok();
+            let info = vram::parse_vram_info(&r, dest_vram, dest_mc.unwrap_or(0))?;
+            // A strap block is calibrated for the requested size when it
+            // belongs to a module that declares exactly that size.
+            let calibrated = info.modules.iter().enumerate().any(|(i, module)| {
+                module.memory_size_mb as u32 == *size_mb
+                    && info
+                        .straps
+                        .iter()
+                        .any(|strap| strap.mem_block_id as usize == i)
+            });
+            if !calibrated && !understand {
+                let modules = info
+                    .modules
+                    .iter()
+                    .map(|m| format!("{}: {} {} MB", m.index, m.part_number, m.memory_size_mb))
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                let straps = info
+                    .straps
+                    .iter()
+                    .map(|s| format!("blk {} @ {} MHz", s.mem_block_id, s.clock_mhz))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                // One concrete divergence example: the same clock being
+                // calibrated differently for different blocks proves the
+                // values are density-specific.
+                let divergence = info
+                    .straps
+                    .iter()
+                    .enumerate()
+                    .find_map(|(i, a)| {
+                        info.straps.iter().skip(i + 1).find_map(|b| {
+                            (a.clock_mhz == b.clock_mhz && a.values != b.values).then(|| {
+                                let (reg, va) = a
+                                    .values
+                                    .iter()
+                                    .enumerate()
+                                    .find(|(j, v)| **v != b.values[*j])
+                                    .expect("blocks differ, so a register differs");
+                                format!(
+                                    "; e.g. at {} MHz block {} writes 0x{va:08X} where block {} \
+                                     writes 0x{:08X} (reg index {reg})",
+                                    a.clock_mhz, a.mem_block_id, b.mem_block_id, b.values[reg]
+                                )
+                            })
+                        })
+                    })
+                    .unwrap_or_default();
+                bail!(
+                    "no strap block is calibrated for {size_mb} MB: this ROM declares \
+                     {modules} with straps {straps} (values are density-specific{divergence}). \
+                     Refusing to write. Use --i-understand-strap-mismatch to force a \
+                     geometry-only edit (usMemorySize/ucDensity change; timing stays unchanged)"
+                );
+            }
+            let mut changed = false;
+            let mut p = dest_vram + 20;
+            for i in 0..info.num_modules as usize {
+                changed |= push_diff(
+                    &r,
+                    report,
+                    p + 14,
+                    &[density],
+                    &format!("VRAM module {i} density (ucDensity) -> 0x{density:02X}"),
+                )?;
+                changed |= push_diff(
+                    &r,
+                    report,
+                    p + 20,
+                    &(*size_mb as u16).to_le_bytes(),
+                    &format!("VRAM module {i} size (usMemorySize) -> {size_mb} MB"),
+                )?;
+                let advance = r.u16(p + 4)? as usize;
+                p += if advance > 0 { advance } else { 64 };
+            }
+            if !changed {
+                bail!("--vram-size-mb {size_mb} is already declared (geometry unchanged)");
+            }
+            if !calibrated {
+                report.warnings.push(format!(
+                    "--vram-size-mb {size_mb} writes geometry only: the straps remain \
+                     calibrated for another density (timing unchanged)"
+                ));
+            }
+            Ok(true)
+        }
     }
+}
+
+/// Checks that every populated VRAM module of the reference declares the
+/// same (density, size): straps are calibrated per density, so a donor
+/// mixing them would import a set that only fits part of its own
+/// modules. "Populated" means the module carries a vendor id or a part
+/// number - the empty placeholder slots some ROMs ship are ignored.
+fn validate_donor_modules(
+    r: &Reader,
+    vram_off: usize,
+    modules: &[crate::rom::types::VramModule],
+) -> Result<()> {
+    let mut populated = Vec::new();
+    let mut p = vram_off + 20;
+    for module in modules {
+        if module.vendor_id_raw != 0 || !module.part_number.is_empty() {
+            populated.push((r.u8(p + 14)?, module.memory_size_mb));
+        }
+        let advance = r.u16(p + 4)? as usize;
+        p += if advance > 0 { advance } else { 64 };
+    }
+    if populated.is_empty() {
+        bail!("reference ROM declares no populated VRAM module - nothing to import");
+    }
+    let (density, size) = populated[0];
+    for (d, s) in &populated[1..] {
+        if *d != density || *s != size {
+            bail!(
+                "reference ROM is incoherent: VRAM modules mix densities (0x{density:02X}/\
+                 {size} MB vs 0x{d:02X}/{s} MB) - straps are calibrated per density, refusing \
+                 to import a mixed set"
+            );
+        }
+    }
+    Ok(())
 }
