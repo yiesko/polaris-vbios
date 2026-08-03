@@ -74,10 +74,19 @@ pub fn run(
     // Scriptable verdict: identical ROMs exit 0, differing ROMs exit 1
     // (same code as errors - a non-zero exit means "not identical").
     // In text mode the report's own `≠` marker is the verdict; in JSON
-    // mode the two documents are compared structurally.
+    // mode the two documents are compared structurally. The file names
+    // are derived from the CLI paths, not the ROM content, so they are
+    // excluded from the structural verdict.
     let differs = if json {
-        match (serde_json::to_string(&a), serde_json::to_string(&b)) {
-            (Ok(sa), Ok(sb)) => sa != sb,
+        let strip_name = |v: &serde_json::Value| {
+            let mut v = v.clone();
+            if let serde_json::Value::Object(map) = &mut v {
+                map.remove("file_name");
+            }
+            v
+        };
+        match (serde_json::to_value(&a), serde_json::to_value(&b)) {
+            (Ok(va), Ok(vb)) => strip_name(&va) != strip_name(&vb),
             _ => false,
         }
     } else {
