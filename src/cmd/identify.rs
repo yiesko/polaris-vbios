@@ -44,10 +44,14 @@ struct IdentifyJson {
 
 fn run_json(roms: &[PathBuf]) -> ExitCode {
     let mut had_error = false;
+    let mut had_warnings = false;
     let mut out = Vec::new();
     for path in roms {
         match rom::parse_rom(path) {
-            Ok(p) => out.push(identify_json(&p)),
+            Ok(p) => {
+                had_warnings |= !p.warnings.is_empty();
+                out.push(identify_json(&p));
+            }
             Err(e) => {
                 eprintln!("{}: error reading - {e:#}", path.display());
                 had_error = true;
@@ -57,7 +61,7 @@ fn run_json(roms: &[PathBuf]) -> ExitCode {
     match serde_json::to_string_pretty(&out) {
         Ok(s) => {
             println!("{s}");
-            cmd::final_exit_code(had_error, false)
+            cmd::final_exit_code(had_error, had_warnings)
         }
         Err(e) => {
             eprintln!("error generating JSON: {e}");
