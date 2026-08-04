@@ -260,6 +260,41 @@ pub enum Command {
         #[arg(long)]
         i_understand_strap_mismatch: bool,
     },
+    /// Transplant PCI ROM images (Legacy/EFI) between VBIOS files with
+    /// safety guardrails: size checks, device-ID warnings, PCI header
+    /// validation, and optional dry-run
+    Transplant {
+        /// Target ROM ( receives the transplanted image )
+        #[arg(required = true)]
+        target: PathBuf,
+        /// Donor ROM ( provides the image to transplant )
+        #[arg(long, required = true)]
+        from: PathBuf,
+        /// Output ROM file (required - the source is never modified)
+        #[arg(long, required = true)]
+        out: PathBuf,
+        /// Transplant the EFI (UEFI GOP) image only
+        #[arg(long, conflicts_with_all = ["legacy", "both"])]
+        efi: bool,
+        /// Transplant the Legacy (x86) image only
+        #[arg(long, conflicts_with_all = ["efi", "both"])]
+        legacy: bool,
+        /// Transplant both Legacy and EFI images
+        #[arg(long, conflicts_with_all = ["efi", "legacy"])]
+        both: bool,
+        /// Image index in the target chain (default: auto-detect by type)
+        #[arg(long)]
+        target_index: Option<usize>,
+        /// Image index in the donor chain (default: auto-detect by type)
+        #[arg(long)]
+        donor_index: Option<usize>,
+        /// Show the transplant plan and verification, write nothing
+        #[arg(long)]
+        dry_run: bool,
+        /// Ignore device-ID mismatch warnings
+        #[arg(long)]
+        force: bool,
+    },
     /// List available sections
     ListSections,
     /// Print a shell completion script for your shell and exit
@@ -347,7 +382,8 @@ impl Command {
             Command::Patch { .. }
             | Command::Check { .. }
             | Command::Convert { .. }
-            | Command::DecodeStrap { .. } => false,
+            | Command::DecodeStrap { .. }
+            | Command::Transplant { .. } => false,
             Command::ListSections => true,
             Command::Completions { .. } => true,
             Command::Man => true,

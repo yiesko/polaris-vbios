@@ -11,6 +11,7 @@ mod dump;
 mod extract;
 mod identify;
 mod patch;
+mod transplant;
 
 use std::collections::HashMap;
 use std::fs;
@@ -141,6 +142,7 @@ pub fn run(cmd: Command) -> ExitCode {
             i_understand_strap_mismatch,
         }),
         Command::ListSections | Command::Completions { .. } | Command::Man => unreachable!(),
+        Command::Transplant { .. } => transplant::run(cmd),
     }
 }
 
