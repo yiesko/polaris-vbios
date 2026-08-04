@@ -1,6 +1,6 @@
 [package]
 name = "polaris-vbios"
-version = "1.1.0"
+version = "1.2.0"
 edition = "2024"
 description = "CLI utility for reading, dumping, comparing and analyzing AMD Polaris (RX 400/500) VBIOS ROMs."
 authors = ["yieskoW <yiesko@proton.me>"]
