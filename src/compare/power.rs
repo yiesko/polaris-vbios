@@ -41,8 +41,8 @@ pub(super) fn compare_mclk(a: &ParsedRom, b: &ParsedRom, pal: &Palette, diff_onl
 fn compare_levels<T>(t: &mut Table, ta: &[T], tb: &[T], mut field: impl FnMut(&T) -> f64) {
     let n = ta.len().max(tb.len());
     for i in 0..n {
-        let va = ta.get(i).map(|e| field(e));
-        let vb = tb.get(i).map(|e| field(e));
+        let va = ta.get(i).map(&mut field);
+        let vb = tb.get(i).map(&mut field);
         match (va, vb) {
             (Some(va), Some(vb)) => {
                 t.row_pct(&format!("  level {i}"), va, vb, |v| format!("{v:.0} MHz"));

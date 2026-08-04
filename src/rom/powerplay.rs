@@ -38,9 +38,9 @@ pub fn signed16(v: u16) -> i32 {
 }
 
 /// Decodes a bitfield value against a table of (bitmask, label) pairs.
-fn decode_bitfield<T: Copy>(value: T, bits: &[(T, &str)]) -> Vec<String>
+fn decode_bitfield<T>(value: T, bits: &[(T, &str)]) -> Vec<String>
 where
-    T: std::ops::BitAnd<Output = T> + PartialEq + From<u8>,
+    T: Copy + std::ops::BitAnd<Output = T> + PartialEq + From<u8>,
 {
     bits.iter()
         .filter(|(bit, _)| value & *bit != T::from(0))
