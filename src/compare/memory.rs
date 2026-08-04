@@ -5,6 +5,7 @@ use crate::render::color::Palette;
 use crate::render::sections::Section;
 use crate::render::text::RegNames;
 use crate::rom::types::ParsedRom;
+use crate::rom::types::StrapSliceExt;
 use std::collections::BTreeSet;
 
 pub(super) fn compare_vram(a: &ParsedRom, b: &ParsedRom, pal: &Palette, diff_only: bool) -> String {
@@ -60,18 +61,8 @@ pub(super) fn compare_straps(
         a.vram.straps.len(),
         b.vram.straps.len(),
     );
-    let max_a = a
-        .vram
-        .straps
-        .iter()
-        .map(|s| s.clock_mhz)
-        .fold(0.0, f64::max);
-    let max_b = b
-        .vram
-        .straps
-        .iter()
-        .map(|s| s.clock_mhz)
-        .fold(0.0, f64::max);
+    let max_a = a.vram.straps.max_clock_mhz();
+    let max_b = b.vram.straps.max_clock_mhz();
     t.row_pct("Max strap (MHz)", max_a, max_b, |v| format!("{v:.0}"));
     let blocks_a: BTreeSet<u8> = a.vram.straps.iter().map(|s| s.mem_block_id).collect();
     let blocks_b: BTreeSet<u8> = b.vram.straps.iter().map(|s| s.mem_block_id).collect();
@@ -83,9 +74,8 @@ pub(super) fn compare_straps(
 
     // Match by clock (rounded to the nearest MHz, to tolerate
     // floating-point noise without requiring exact bit equality).
-    let key = |mhz: f64| mhz.round() as i64;
-    let clocks_a: BTreeSet<i64> = a.vram.straps.iter().map(|s| key(s.clock_mhz)).collect();
-    let clocks_b: BTreeSet<i64> = b.vram.straps.iter().map(|s| key(s.clock_mhz)).collect();
+    let clocks_a = a.vram.straps.all_clock_keys();
+    let clocks_b = b.vram.straps.all_clock_keys();
     let all_clocks: BTreeSet<i64> = clocks_a.union(&clocks_b).copied().collect();
 
     let clocks: Vec<i64> = all_clocks.into_iter().collect();
@@ -126,7 +116,7 @@ pub(super) fn compare_straps(
     // registers with no known timing layout. Fields equal in both ROMs
     // are shown in green, differing ones in yellow, · = absent.
     let field_pairs = |rom: &ParsedRom, clk: i64| {
-        let Some(strap) = rom.vram.straps.iter().find(|s| key(s.clock_mhz) == clk) else {
+        let Some(strap) = rom.vram.straps.find_by_clock_key(clk) else {
             return Vec::new();
         };
         compare_util::strap_other_groups(

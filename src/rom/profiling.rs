@@ -11,9 +11,7 @@ use super::types::{EfuseLinearFuncParam, ProfilingInfo};
 /// (V3_1..V3_5) share the first ~128 bytes; the load line / TDC /
 /// no-calc-VDDC fields only exist from V3_6 on.
 pub fn parse_profiling_info(r: &Reader, off: usize) -> Result<ProfilingInfo> {
-    let struct_size = r.u16(off)?;
-    let fmt_rev = r.u8(off + 2)?;
-    let cont_rev = r.u8(off + 3)?;
+    let (struct_size, fmt_rev, cont_rev) = r.table_header(off)?;
     let v36 = cont_rev >= 6 && struct_size >= 132;
 
     let read_u32 = |at: usize| -> u32 {

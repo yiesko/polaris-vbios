@@ -155,7 +155,9 @@ pub struct TdpError {
 
 impl TdpError {
     pub fn message(&self) -> String {
-        let env = envelope_for(self.die).expect("errors only exist for known dies");
+        let Some(env) = envelope_for(self.die) else {
+            return format!("TDP {} W for an unrecognized die", self.watts);
+        };
         match self.kind {
             TdpKind::TooLow => format!(
                 "TDP {} W is below half of the {} W floor of a {} - no Polaris card of \
@@ -178,7 +180,9 @@ impl TdpError {
                 env.reported_oc_max_w,
                 absurd_ceiling(&env)
             ),
-            _ => unreachable!("errors only carry TooLow/Absurd"),
+            // Normal/UnusualLow/UnusualHigh are not error states; the
+            // constructor only creates TdpError for TooLow/Absurd.
+            _ => String::new(),
         }
     }
 }
@@ -266,22 +270,14 @@ pub fn detect_die(rom: &ParsedRom) -> Die {
                 .header
                 .bios_bootup_message
                 .as_deref()
-                .unwrap_or_default()
-                .to_ascii_lowercase()
-                .chars()
-                .filter(|c| !c.is_whitespace() && *c != '-')
-                .collect::<String>();
-            if msg.contains("polaris30") {
+                .unwrap_or_default();
+            if contains_ignore_ws(msg, "polaris30") {
                 Die::Polaris30
-            } else if msg.contains("polaris20") {
+            } else if contains_ignore_ws(msg, "polaris20") {
                 Die::Ellesmere20
-            } else if msg.contains("polaris10") || msg.contains("ellesmere") {
+            } else if contains_ignore_ws(msg, "polaris10") || contains_ignore_ws(msg, "ellesmere") {
                 Die::Ellesmere10
             } else if rom.vram.mcu_code_version.is_some_and(|v| v >= 11_853_696) {
-                // MC microcode: 12 nm Polaris 30 ships 11853696+
-                // (28630912 on the RX 590); 14 nm dies stay ~11850240..
-                // 11852848. A value in the 30 range with no die name
-                // means an early RX 590 with a bare boot string.
                 Die::Polaris30
             } else {
                 Die::EllesmereGeneric
@@ -289,4 +285,34 @@ pub fn detect_die(rom: &ParsedRom) -> Die {
         }
         _ => Die::Unknown,
     }
+}
+
+/// Returns `true` if `haystack` contains `needle` when all whitespace
+/// and hyphens are stripped from both sides (case-insensitive).
+fn contains_ignore_ws(haystack: &str, needle: &str) -> bool {
+    if needle.is_empty() {
+        return true;
+    }
+    let needle_lower: Vec<u8> = needle.bytes().map(|b| b.to_ascii_lowercase()).collect();
+    let mut matched = 0usize;
+    for &b in haystack.as_bytes() {
+        match b {
+            b' ' | b'-' | b'\t' | b'\n' | b'\r' => continue,
+            b if b.to_ascii_lowercase() == needle_lower[matched] => {
+                matched += 1;
+                if matched == needle_lower.len() {
+                    return true;
+                }
+            }
+            _ => {
+                // Check if current byte matches the start of needle.
+                matched = if b.to_ascii_lowercase() == needle_lower[0] {
+                    1
+                } else {
+                    0
+                };
+            }
+        }
+    }
+    false
 }

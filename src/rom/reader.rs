@@ -61,6 +61,12 @@ impl<'a> Reader<'a> {
         Ok(String::from_utf8_lossy(&raw[..end]).trim().to_string())
     }
 
+    /// Reads the 4-byte common header of an ATOM table: struct_size
+    /// (u16 LE), format_revision (u8), content_revision (u8).
+    pub fn table_header(&self, off: usize) -> Result<(u16, u8, u8)> {
+        Ok((self.u16(off)?, self.u8(off + 2)?, self.u8(off + 3)?))
+    }
+
     pub fn bytes(&self, off: usize, n: usize) -> Result<&'a [u8]> {
         self.check(off, n)?;
         Ok(&self.data[off..off + n])

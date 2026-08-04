@@ -3,6 +3,7 @@ use crate::compare_util;
 use crate::render::color::Palette;
 use crate::render::sections::Section;
 use crate::rom::types::ParsedRom;
+use crate::rom::types::StrapSliceExt;
 
 pub(super) fn render_vram(rom: &ParsedRom, pal: &Palette) -> String {
     let v = &rom.vram;
@@ -77,11 +78,7 @@ pub(super) fn render_straps(rom: &ParsedRom, pal: &Palette, reg_names: RegNames)
         )
     };
 
-    let mut by_block: std::collections::BTreeMap<u8, Vec<&crate::rom::types::MemoryStrap>> =
-        std::collections::BTreeMap::new();
-    for strap in &v.straps {
-        by_block.entry(strap.mem_block_id).or_default().push(strap);
-    }
+    let by_block = v.straps.group_by_block();
 
     for (blk, straps) in by_block {
         let module_tag = v
@@ -109,7 +106,7 @@ pub(super) fn render_straps(rom: &ParsedRom, pal: &Palette, reg_names: RegNames)
         let cell_w = 12;
         let clocks: Vec<i64> = straps
             .iter()
-            .map(|st| st.clock_mhz.round() as i64)
+            .map(|st| crate::rom::types::strap_clock_key(st.clock_mhz))
             .collect();
         let cell = |field: &str, clk: i64| -> (String, bool) {
             let content = match compare_util::field_at(rom, clk, field) {

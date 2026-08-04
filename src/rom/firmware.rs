@@ -61,9 +61,7 @@ fn cooling_solution_name(id: u8) -> &'static str {
 /// Note: fields marked "Was ..." in the header are reserved in V2_2 and
 /// are not read here.
 pub fn parse_firmware_info(r: &Reader, off: usize) -> Result<FirmwareInfo> {
-    let struct_size = r.u16(off)?;
-    let fmt_rev = r.u8(off + 2)?;
-    let cont_rev = r.u8(off + 3)?;
+    let (struct_size, fmt_rev, cont_rev) = r.table_header(off)?;
 
     let firmware_revision = r.u32(off + 4)?;
     let default_engine_clock_10khz = r.u32(off + 8)?;

@@ -1,5 +1,6 @@
 use anyhow::Result;
 
+use super::parse_optional;
 use super::reader::Reader;
 use super::types::*;
 
@@ -15,22 +16,6 @@ fn subtable_vec<T>(
             .map_err(|e| anyhow::anyhow!("failed to parse {label} subtable: {e}"))
     } else {
         Ok(Vec::new())
-    }
-}
-
-fn subtable_opt<T>(
-    r: &Reader<'_>,
-    base: usize,
-    offset: usize,
-    label: &str,
-    parse_fn: fn(&Reader<'_>, usize) -> Result<T>,
-) -> Result<Option<T>> {
-    if offset != 0 {
-        Ok(Some(parse_fn(r, base + offset).map_err(|e| {
-            anyhow::anyhow!("failed to parse {label} subtable: {e}")
-        })?))
-    } else {
-        Ok(None)
     }
 }
 
@@ -52,50 +37,58 @@ pub fn signed16(v: u16) -> i32 {
     v as i16 as i32
 }
 
-fn decode_platform_caps(caps: u32) -> Vec<String> {
-    let bits: &[(u32, &str)] = &[
-        (0x1, "VDDGFX_CONTROL (separate VDDGFX rail)"),
-        (0x2, "POWERPLAY (mobile/CCC power page)"),
-        (0x4, "SBIOSPOWERSOURCE"),
-        (0x8, "DISABLE_VOLTAGE_ISLAND"),
-        (0x20, "HARDWAREDC"),
-        (0x1000, "MVDD_CONTROL (dynamic MVDD)"),
-        (0x8000, "VDDCI_CONTROL (dynamic VDDCI)"),
-        (0x20000, "BACO"),
-        (0x100000, "OUTPUT_THERMAL2GPIO17"),
-        (0x1000000, "COMBINE_PCC_WITH_THERMAL_SIGNAL"),
-        (0x2000000, "LOAD_POST_PRODUCTION_FIRMWARE"),
-    ];
+/// Decodes a bitfield value against a table of (bitmask, label) pairs.
+fn decode_bitfield<T: Copy>(value: T, bits: &[(T, &str)]) -> Vec<String>
+where
+    T: std::ops::BitAnd<Output = T> + PartialEq + From<u8>,
+{
     bits.iter()
-        .filter(|(bit, _)| caps & bit != 0)
+        .filter(|(bit, _)| value & *bit != T::from(0))
         .map(|(_, name)| name.to_string())
         .collect()
+}
+
+fn decode_platform_caps(caps: u32) -> Vec<String> {
+    decode_bitfield(
+        caps,
+        &[
+            (0x1, "VDDGFX_CONTROL (separate VDDGFX rail)"),
+            (0x2, "POWERPLAY (mobile/CCC power page)"),
+            (0x4, "SBIOSPOWERSOURCE"),
+            (0x8, "DISABLE_VOLTAGE_ISLAND"),
+            (0x20, "HARDWAREDC"),
+            (0x1000, "MVDD_CONTROL (dynamic MVDD)"),
+            (0x8000, "VDDCI_CONTROL (dynamic VDDCI)"),
+            (0x20000, "BACO"),
+            (0x100000, "OUTPUT_THERMAL2GPIO17"),
+            (0x1000000, "COMBINE_PCC_WITH_THERMAL_SIGNAL"),
+            (0x2000000, "LOAD_POST_PRODUCTION_FIRMWARE"),
+        ],
+    )
 }
 
 /// Decodes the `usClassification` field of a Tonga/Polaris state.
 /// Flag bits from the Linux kernel's pptable.h
 /// (drivers/gpu/drm/radeon/pptable.h, "ATOM_PPLIB_NONCLOCK_INFO").
 fn decode_classification(classification: u16) -> Vec<String> {
-    let bits: &[(u16, &str)] = &[
-        (0x0008, "BOOT"),
-        (0x0010, "THERMAL"),
-        (0x0020, "LIMITEDPOWERSOURCE"),
-        (0x0040, "REST"),
-        (0x0080, "FORCED"),
-        (0x0100, "3DPERFORMANCE"),
-        (0x0200, "OVERDRIVETEMPLATE"),
-        (0x0400, "UVDSTATE"),
-        (0x0800, "3DLOW"),
-        (0x1000, "ACPI"),
-        (0x2000, "HD2STATE"),
-        (0x4000, "HDSTATE"),
-        (0x8000, "SDSTATE"),
-    ];
-    let mut out: Vec<String> = bits
-        .iter()
-        .filter(|(bit, _)| classification & bit != 0)
-        .map(|(_, name)| name.to_string())
-        .collect();
+    let mut out = decode_bitfield(
+        classification,
+        &[
+            (0x0008, "BOOT"),
+            (0x0010, "THERMAL"),
+            (0x0020, "LIMITEDPOWERSOURCE"),
+            (0x0040, "REST"),
+            (0x0080, "FORCED"),
+            (0x0100, "3DPERFORMANCE"),
+            (0x0200, "OVERDRIVETEMPLATE"),
+            (0x0400, "UVDSTATE"),
+            (0x0800, "3DLOW"),
+            (0x1000, "ACPI"),
+            (0x2000, "HD2STATE"),
+            (0x4000, "HDSTATE"),
+            (0x8000, "SDSTATE"),
+        ],
+    );
     // UI bits [2:0] (UI_NONE = 0 means "no UI state", so it is skipped).
     let ui = classification & 0x0007;
     if ui != 0 {
@@ -382,9 +375,7 @@ fn parse_hard_limit_table(r: &Reader, off: usize) -> Result<Vec<HardLimitEntry>>
 /// (RX 470/480/570/580). All sub-table offsets are relative to the
 /// start of this table (`off`).
 pub fn parse_powerplay(r: &Reader, off: usize) -> Result<PowerPlay> {
-    let struct_size_total = r.u16(off)?;
-    let header_fmt_rev = r.u8(off + 2)?;
-    let header_cont_rev = r.u8(off + 3)?;
+    let (struct_size_total, header_fmt_rev, header_cont_rev) = r.table_header(off)?;
     let table_revision = r.u8(off + 4)?;
 
     let platform_caps = r.u32(off + 19)?;
@@ -420,7 +411,7 @@ pub fn parse_powerplay(r: &Reader, off: usize) -> Result<PowerPlay> {
         max_overdrive_memory_mhz: max_od_memory as f64 / 100.0,
         power_control_limit_pct: power_control_limit,
         states: subtable_vec(r, off, state_arr_off, "states", parse_states)?,
-        thermal_controller: subtable_opt(
+        thermal_controller: parse_optional(
             r,
             off,
             thermal_ctrl_off,
@@ -434,8 +425,8 @@ pub fn parse_powerplay(r: &Reader, off: usize) -> Result<PowerPlay> {
             Vec::new()
         },
         mm_table: subtable_vec(r, off, mm_dep_off, "multimedia table", parse_mm_table)?,
-        powertune: subtable_opt(r, off, powertune_off, "powertune", parse_powertune)?,
-        fan_table: subtable_opt(r, off, fan_table_off, "fan table", parse_fan_table)?,
+        powertune: parse_optional(r, off, powertune_off, "powertune", parse_powertune)?,
+        fan_table: parse_optional(r, off, fan_table_off, "fan table", parse_fan_table)?,
         pcie_table: subtable_vec(r, off, pcie_off, "PCIe table", parse_pcie_table)?,
         vrhot_sclk_dpm_index: if gpio_off != 0 {
             Some(r.u8(off + gpio_off + 1)?)

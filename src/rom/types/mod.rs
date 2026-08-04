@@ -35,5 +35,5 @@ pub use profiling::{EfuseLinearFuncParam, ProfilingInfo};
 pub use smu::{SclkFcwRangeEntry, SmuInfo};
 pub use ss::{SsEntry, SsInfo};
 pub use vesa::{VesaInfo, VesaMode};
-pub use vram::{MemoryStrap, VramInfo, VramModule};
+pub use vram::{MemoryStrap, StrapSliceExt, VramInfo, VramModule, strap_clock_key};
 pub use vrm::{EvvEntry, VoltageObject, VoltageObjectDetail, VrmInfo};

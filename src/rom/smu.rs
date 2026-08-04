@@ -17,9 +17,7 @@ fn vco_setting_name(v: u8) -> &'static str {
 /// the SMU7 firmware version and the SCLK FCW (fractional clock word)
 /// ranges used by the VCO/post-divider configuration.
 pub fn parse_smu_info(r: &Reader, off: usize) -> Result<SmuInfo> {
-    let struct_size = r.u16(off)?;
-    let fmt_rev = r.u8(off + 2)?;
-    let cont_rev = r.u8(off + 3)?;
+    let (struct_size, fmt_rev, cont_rev) = r.table_header(off)?;
 
     let sclk_entry_num = r.u8(off + 4)?;
     let smu_ver = r.u8(off + 5)?;

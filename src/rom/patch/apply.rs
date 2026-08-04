@@ -736,19 +736,19 @@ fn apply_one(
                     .enumerate()
                     .find_map(|(i, a)| {
                         info.straps.iter().skip(i + 1).find_map(|b| {
-                            (a.clock_mhz == b.clock_mhz && a.values != b.values).then(|| {
-                                let (reg, va) = a
-                                    .values
-                                    .iter()
-                                    .enumerate()
-                                    .find(|(j, v)| **v != b.values[*j])
-                                    .expect("blocks differ, so a register differs");
-                                format!(
-                                    "; e.g. at {} MHz block {} writes 0x{va:08X} where block {} \
-                                     writes 0x{:08X} (reg index {reg})",
-                                    a.clock_mhz, a.mem_block_id, b.mem_block_id, b.values[reg]
-                                )
-                            })
+                            if a.clock_mhz != b.clock_mhz || a.values == b.values {
+                                return None;
+                            }
+                            let (reg, va) = a
+                                .values
+                                .iter()
+                                .enumerate()
+                                .find(|(j, v)| **v != b.values[*j])?;
+                            Some(format!(
+                                "; e.g. at {} MHz block {} writes 0x{va:08X} where block {} \
+                                 writes 0x{:08X} (reg index {reg})",
+                                a.clock_mhz, a.mem_block_id, b.mem_block_id, b.values[reg]
+                            ))
                         })
                     })
                     .unwrap_or_default();

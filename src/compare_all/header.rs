@@ -2,6 +2,7 @@ use super::Matrix;
 use super::title;
 use crate::render::color::Palette;
 use crate::render::sections::Section;
+use crate::rom;
 use crate::rom::types::ParsedRom;
 
 pub(super) fn header_section(
@@ -38,10 +39,10 @@ pub(super) fn header_section(
         &roms
             .iter()
             .map(|r| {
-                r.header
-                    .subsystem_vendor_name
-                    .clone()
-                    .unwrap_or_else(|| format!("0x{:04X}", r.header.subsystem_vendor_id))
+                rom::vendor_display(
+                    &r.header.subsystem_vendor_name,
+                    r.header.subsystem_vendor_id,
+                )
             })
             .collect::<Vec<_>>(),
     );

@@ -116,9 +116,7 @@ fn parse_mc_ucode(r: &Reader, off: usize) -> Option<(u32, u32, u32)> {
 /// Parses `ATOM_VRAM_INFO_HEADER_V2_2` (the format used by Polaris,
 /// with `ATOM_VRAM_MODULE_V8` modules).
 pub fn parse_vram_info(r: &Reader, off: usize, mc_init_off: usize) -> Result<VramInfo> {
-    let struct_size = r.u16(off)?;
-    let fmt_rev = r.u8(off + 2)?;
-    let cont_rev = r.u8(off + 3)?;
+    let (struct_size, fmt_rev, cont_rev) = r.table_header(off)?;
     let mem_clk_patch_off = r.u16(off + 6)? as usize;
     let num_modules = r.u8(off + 16)?;
 

@@ -10,9 +10,7 @@ use super::types::{VesaInfo, VesaMode};
 /// sync offsets and widths, mode misc flags and the internal mode
 /// number. All-zero entries are skipped (empty slots in the table).
 pub fn parse_vesa_timing(r: &Reader, off: usize) -> Result<VesaInfo> {
-    let struct_size = r.u16(off)?;
-    let fmt_rev = r.u8(off + 2)?;
-    let cont_rev = r.u8(off + 3)?;
+    let (struct_size, fmt_rev, cont_rev) = r.table_header(off)?;
 
     let avail = (struct_size as usize).saturating_sub(4) / 28;
     let mut modes = Vec::with_capacity(avail);

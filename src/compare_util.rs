@@ -1,5 +1,6 @@
 use crate::render::color::Palette;
 use crate::rom::types::ParsedRom;
+use crate::rom::types::StrapSliceExt;
 
 /// Percent delta `(b - a) / a`, formatted with sign. `a == 0` has no
 /// well-defined percent variation, so we show a neutral indicator
@@ -35,11 +36,7 @@ pub type RegGroup = (String, Vec<(String, String)>);
 /// Decoded value of one timing field of one ROM at one clock, when the
 /// strap list contains a strap at that clock.
 pub fn field_at(rom: &ParsedRom, clk: i64, field: &str) -> Option<u32> {
-    let strap = rom
-        .vram
-        .straps
-        .iter()
-        .find(|s| s.clock_mhz.round() as i64 == clk)?;
+    let strap = rom.vram.straps.find_by_clock_key(clk)?;
     strap.values.iter().enumerate().find_map(|(i, v)| {
         let idx = rom.vram.strap_reg_indices.get(i)?;
         let reg = crate::rom::timings::register(*idx)?;

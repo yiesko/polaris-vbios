@@ -30,9 +30,7 @@ fn sensor_type_name(t: u8) -> &'static str {
 /// block comes a variable number of 12-byte `ATOM_POWER_SOURCE_OBJECT`
 /// entries; the count is derived from the declared structure size.
 pub fn parse_power_source_info(r: &Reader, off: usize) -> Result<PowerSourceInfo> {
-    let struct_size = r.u16(off)?;
-    let fmt_rev = r.u8(off + 2)?;
-    let cont_rev = r.u8(off + 3)?;
+    let (struct_size, fmt_rev, cont_rev) = r.table_header(off)?;
 
     let obj_base = off + 20;
     let avail = struct_size.saturating_sub(20) / 12;

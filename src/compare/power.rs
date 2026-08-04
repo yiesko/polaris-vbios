@@ -21,10 +21,28 @@ pub(super) fn compare_sclk(a: &ParsedRom, b: &ParsedRom, pal: &Palette, diff_onl
     t.row_pct("SCLK max boost (MHz)", boost_a, boost_b, |v| {
         format!("{v:.0}")
     });
+    compare_levels(&mut t, ta, tb, |e| e.sclk_mhz);
+    s.push_str(&t.finish("(nothing differs in this section)"));
+    s
+}
+
+pub(super) fn compare_mclk(a: &ParsedRom, b: &ParsedRom, pal: &Palette, diff_only: bool) -> String {
+    let (ta, tb) = (&a.powerplay.mclk_table, &b.powerplay.mclk_table);
+    let mut s = title(pal, Section::Mclk.label());
+    s.push('\n');
+    let mut t = Table::new(pal, diff_only);
+    t.header(&a.file_name, &b.file_name);
+    t.row("DPM levels (count)", ta.len(), tb.len());
+    compare_levels(&mut t, ta, tb, |e| e.mclk_mhz);
+    s.push_str(&t.finish("(nothing differs in this section)"));
+    s
+}
+
+fn compare_levels<T>(t: &mut Table, ta: &[T], tb: &[T], mut field: impl FnMut(&T) -> f64) {
     let n = ta.len().max(tb.len());
     for i in 0..n {
-        let va = ta.get(i).map(|e| e.sclk_mhz);
-        let vb = tb.get(i).map(|e| e.sclk_mhz);
+        let va = ta.get(i).map(|e| field(e));
+        let vb = tb.get(i).map(|e| field(e));
         match (va, vb) {
             (Some(va), Some(vb)) => {
                 t.row_pct(&format!("  level {i}"), va, vb, |v| format!("{v:.0} MHz"));
@@ -40,38 +58,6 @@ pub(super) fn compare_sclk(a: &ParsedRom, b: &ParsedRom, pal: &Palette, diff_onl
             }
         }
     }
-    s.push_str(&t.finish("(nothing differs in this section)"));
-    s
-}
-
-pub(super) fn compare_mclk(a: &ParsedRom, b: &ParsedRom, pal: &Palette, diff_only: bool) -> String {
-    let (ta, tb) = (&a.powerplay.mclk_table, &b.powerplay.mclk_table);
-    let mut s = title(pal, Section::Mclk.label());
-    s.push('\n');
-    let mut t = Table::new(pal, diff_only);
-    t.header(&a.file_name, &b.file_name);
-    t.row("DPM levels (count)", ta.len(), tb.len());
-    let n = ta.len().max(tb.len());
-    for i in 0..n {
-        let va = ta.get(i).map(|e| e.mclk_mhz);
-        let vb = tb.get(i).map(|e| e.mclk_mhz);
-        match (va, vb) {
-            (Some(va), Some(vb)) => {
-                t.row_pct(&format!("level {i}"), va, vb, |v| format!("{v:.0} MHz"));
-            }
-            _ => {
-                t.row(
-                    &format!("level {i}"),
-                    va.map(|v| format!("{v:.0} MHz"))
-                        .unwrap_or_else(|| "-".into()),
-                    vb.map(|v| format!("{v:.0} MHz"))
-                        .unwrap_or_else(|| "-".into()),
-                );
-            }
-        }
-    }
-    s.push_str(&t.finish("(nothing differs in this section)"));
-    s
 }
 
 pub(super) fn compare_voltages(

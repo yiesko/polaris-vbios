@@ -2,6 +2,7 @@ use super::Table;
 use super::title;
 use crate::render::color::Palette;
 use crate::render::sections::Section;
+use crate::rom;
 use crate::rom::types::ParsedRom;
 
 pub(super) fn compare_header(
@@ -31,16 +32,14 @@ pub(super) fn compare_header(
         a.powerplay.table_revision,
         b.powerplay.table_revision,
     );
-    let vend_a = a
-        .header
-        .subsystem_vendor_name
-        .clone()
-        .unwrap_or_else(|| format!("0x{:04X}", a.header.subsystem_vendor_id));
-    let vend_b = b
-        .header
-        .subsystem_vendor_name
-        .clone()
-        .unwrap_or_else(|| format!("0x{:04X}", b.header.subsystem_vendor_id));
+    let vend_a = rom::vendor_display(
+        &a.header.subsystem_vendor_name,
+        a.header.subsystem_vendor_id,
+    );
+    let vend_b = rom::vendor_display(
+        &b.header.subsystem_vendor_name,
+        b.header.subsystem_vendor_id,
+    );
     t.row("Subsystem vendor", vend_a, vend_b);
     t.row(
         "Subsystem device",

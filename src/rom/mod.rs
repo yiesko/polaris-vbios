@@ -30,14 +30,17 @@ use anyhow::{Context, Result};
 use reader::Reader;
 use types::ParsedRom;
 
-fn parse_optional<T>(
+/// Parses a subtable at `base + offset` if `offset != 0`, returning
+/// `None` when the offset is zero.
+pub fn parse_optional<T>(
     r: &Reader<'_>,
+    base: usize,
     offset: usize,
     label: &str,
     parse_fn: fn(&Reader<'_>, usize) -> Result<T>,
 ) -> Result<Option<T>> {
     if offset != 0 {
-        Ok(Some(parse_fn(r, offset).with_context(|| {
+        Ok(Some(parse_fn(r, base + offset).with_context(|| {
             format!("failed to parse {label} table")
         })?))
     } else {
@@ -45,7 +48,26 @@ fn parse_optional<T>(
     }
 }
 
+/// Displays a subsystem vendor name, falling back to the raw hex id
+/// when the name is absent.
+pub fn vendor_display(name: &Option<String>, id: u16) -> String {
+    name.clone().unwrap_or_else(|| format!("0x{id:04X}"))
+}
+
+/// Minimum ROM size in bytes: an ATOM header (0x100) plus a master
+/// table plus some slack. A valid VBIOS is never smaller than 2 KiB.
+const MIN_ROM_SIZE: u64 = 2048;
+
 pub fn parse_rom(path: &Path) -> Result<ParsedRom> {
+    let meta =
+        fs::metadata(path).with_context(|| format!("could not stat file '{}'", path.display()))?;
+    let size = meta.len();
+    if size < MIN_ROM_SIZE {
+        anyhow::bail!(
+            "'{}' is only {size} bytes - too small to be a valid VBIOS ROM (minimum {MIN_ROM_SIZE})",
+            path.display()
+        );
+    }
     let data =
         fs::read(path).with_context(|| format!("could not read file '{}'", path.display()))?;
     parse_bytes(&data, &file_name_of(path))
@@ -126,24 +148,38 @@ pub fn parse_bytes(data: &[u8], file_name: &str) -> Result<ParsedRom> {
             objects: Vec::new(),
         }
     };
-    let asic = parse_optional(&r, asic_off, "GFX_Info", asic::parse_asic_info)?;
-    let smu = parse_optional(&r, smu_off, "SMU_Info", smu::parse_smu_info)?;
+    let asic = parse_optional(&r, 0, asic_off, "GFX_Info", asic::parse_asic_info)?;
+    let smu = parse_optional(&r, 0, smu_off, "SMU_Info", smu::parse_smu_info)?;
     let power_source = parse_optional(
         &r,
+        0,
         pwr_off,
         "PowerSourceInfo",
         power_source::parse_power_source_info,
     )?;
-    let gpio_pin_lut = parse_optional(&r, gpio_off, "GPIO_Pin_LUT", gpio::parse_gpio_pin_lut)?;
+    let gpio_pin_lut = parse_optional(&r, 0, gpio_off, "GPIO_Pin_LUT", gpio::parse_gpio_pin_lut)?;
     let profiling = parse_optional(
         &r,
+        0,
         prof_off,
         "ASIC_ProfilingInfo",
         profiling::parse_profiling_info,
     )?;
-    let ss = parse_optional(&r, ss_off, "ASIC_InternalSS_Info", ss::parse_ss_info)?;
-    let vesa = parse_optional(&r, vesa_off, "StandardVESA_Timing", vesa::parse_vesa_timing)?;
-    let i2c = parse_optional(&r, i2c_off, "GPIO_I2C_Info", gpio_i2c::parse_gpio_i2c_info)?;
+    let ss = parse_optional(&r, 0, ss_off, "ASIC_InternalSS_Info", ss::parse_ss_info)?;
+    let vesa = parse_optional(
+        &r,
+        0,
+        vesa_off,
+        "StandardVESA_Timing",
+        vesa::parse_vesa_timing,
+    )?;
+    let i2c = parse_optional(
+        &r,
+        0,
+        i2c_off,
+        "GPIO_I2C_Info",
+        gpio_i2c::parse_gpio_i2c_info,
+    )?;
 
     let file_name = file_name.to_string();
 

@@ -130,11 +130,10 @@ fn extract_identify_data(rom: &rom::types::ParsedRom) -> IdentifyData {
     memory_vendors.sort();
     memory_vendors.dedup();
     IdentifyData {
-        vendor: rom
-            .header
-            .subsystem_vendor_name
-            .clone()
-            .unwrap_or_else(|| format!("0x{:04X}", rom.header.subsystem_vendor_id)),
+        vendor: rom::vendor_display(
+            &rom.header.subsystem_vendor_name,
+            rom.header.subsystem_vendor_id,
+        ),
         family: family_label(rom),
         vram_size_mb,
         memory_types,

@@ -4,6 +4,7 @@ use crate::compare_util;
 use crate::render::color::Palette;
 use crate::render::sections::Section;
 use crate::rom::types::ParsedRom;
+use crate::rom::types::StrapSliceExt;
 
 pub(super) fn vram_section(
     roms: &[ParsedRom],
@@ -75,16 +76,7 @@ pub(super) fn straps_section(
         "Max strap (MHz)",
         &roms
             .iter()
-            .map(|r| {
-                format!(
-                    "{:.0}",
-                    r.vram
-                        .straps
-                        .iter()
-                        .map(|s| s.clock_mhz)
-                        .fold(0.0, f64::max)
-                )
-            })
+            .map(|r| format!("{:.0}", r.vram.straps.max_clock_mhz()))
             .collect::<Vec<_>>(),
     );
 
@@ -92,12 +84,9 @@ pub(super) fn straps_section(
     // in ANY of the ROMs, show whether the registers match across all
     // ROMs that have that clock.
     use std::collections::BTreeSet;
-    let key = |mhz: f64| mhz.round() as i64;
     let mut all_clocks: BTreeSet<i64> = BTreeSet::new();
     for r in roms {
-        for strap in &r.vram.straps {
-            all_clocks.insert(key(strap.clock_mhz));
-        }
+        all_clocks.extend(r.vram.straps.all_clock_keys());
     }
     let clocks: Vec<i64> = all_clocks.into_iter().collect();
 
@@ -153,7 +142,7 @@ pub(super) fn straps_section(
     // registers with no known timing layout. Fields equal across all
     // ROMs are shown in green, differing ones in yellow, · = absent.
     let field_pairs = |rom: &ParsedRom, clk: i64| {
-        let Some(strap) = rom.vram.straps.iter().find(|s| key(s.clock_mhz) == clk) else {
+        let Some(strap) = rom.vram.straps.find_by_clock_key(clk) else {
             return Vec::new();
         };
         compare_util::strap_other_groups(

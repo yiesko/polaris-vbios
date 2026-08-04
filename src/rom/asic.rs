@@ -9,9 +9,7 @@ use super::types::AsicInfo;
 /// shader engines, CUs per SH, render backends, ...) which identifies
 /// the die configuration of the GPU.
 pub fn parse_asic_info(r: &Reader, off: usize) -> Result<AsicInfo> {
-    let struct_size = r.u16(off)?;
-    let fmt_rev = r.u8(off + 2)?;
-    let cont_rev = r.u8(off + 3)?;
+    let (struct_size, fmt_rev, cont_rev) = r.table_header(off)?;
     let is_v23 = struct_size >= 20;
 
     Ok(AsicInfo {

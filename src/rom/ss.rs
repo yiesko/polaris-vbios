@@ -27,9 +27,7 @@ pub fn ss_clock_name(ind: u8) -> &'static str {
 /// generators. `ulTargetClockRange` is in 10 kHz units; the value
 /// 0x00FFFFFF means "applies to all clocks of that branch".
 pub fn parse_ss_info(r: &Reader, off: usize) -> Result<SsInfo> {
-    let struct_size = r.u16(off)?;
-    let fmt_rev = r.u8(off + 2)?;
-    let cont_rev = r.u8(off + 3)?;
+    let (struct_size, fmt_rev, cont_rev) = r.table_header(off)?;
     let entry_bytes = 12usize;
     let count = struct_size.saturating_sub(4) as usize / entry_bytes;
 

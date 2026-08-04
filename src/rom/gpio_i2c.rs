@@ -12,9 +12,7 @@ const ENTRY_SIZE: usize = 27;
 /// position of each pin in those registers. Matches the interpretation
 /// of the radeon kernel driver (radeon_atombios.c, radeon_i2c.c).
 pub fn parse_gpio_i2c_info(r: &Reader, off: usize) -> Result<GpioI2cInfo> {
-    let struct_size = r.u16(off)?;
-    let fmt_rev = r.u8(off + 2)?;
-    let cont_rev = r.u8(off + 3)?;
+    let (struct_size, fmt_rev, cont_rev) = r.table_header(off)?;
 
     let avail = (struct_size as usize).saturating_sub(4) / ENTRY_SIZE;
     let mut assignments = Vec::with_capacity(avail);

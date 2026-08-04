@@ -22,9 +22,7 @@ fn gpio_id_name(id: u8) -> Option<&'static str> {
 /// a predefined GPIO role; the entry count comes from the declared
 /// structure size.
 pub fn parse_gpio_pin_lut(r: &Reader, off: usize) -> Result<GpioPinLut> {
-    let struct_size = r.u16(off)?;
-    let fmt_rev = r.u8(off + 2)?;
-    let cont_rev = r.u8(off + 3)?;
+    let (struct_size, fmt_rev, cont_rev) = r.table_header(off)?;
 
     let pin_base = off + 4;
     let avail = struct_size.saturating_sub(4) / 4;
