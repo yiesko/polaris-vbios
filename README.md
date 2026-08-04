@@ -25,6 +25,7 @@ Per-topic docs live in `docs/`:
 | [docs/dump/README.md](docs/dump/README.md) | `dump` - sections, text/JSON/CSV output |
 | [docs/compare/README.md](docs/compare/README.md) | `compare`, `compare-all`, `diff-disasm`, scriptable verdicts |
 | [docs/patch/README.md](docs/patch/README.md) | `patch` - guards, `--timing`, `--force`, identity/VRAM editing |
+| [docs/transplant/README.md](docs/transplant/README.md) | `transplant` - PCI ROM image swapping between VBIOS files |
 | [docs/tui/README.md](docs/tui/README.md) | Interactive `tui` mode + keybindings |
 | [docs/reference/README.md](docs/reference/README.md) | `check`/`convert`/`decode-strap`, `--reg-names`, validation, limitations |
 | [docs/development/README.md](docs/development/README.md) | Parsing sources, code structure, license, credits |
@@ -84,6 +85,7 @@ polaris-vbios tui ~/GPU/RX570_original.rom ~/GPU/Gigabyte.RX580.8192.rom
 | `compare-all` | Matrix comparison of 3+ ROMs (exit 1 when they differ) |
 | `identify` | One-line summary per ROM (or `--json`) |
 | `patch` | Safe ROM editing (straps, timings, PowerPlay, hex) + checksum fix |
+| `transplant` | Transplant PCI ROM images (Legacy/EFI) between VBIOS files |
 | `check` | Run every validation rule, scriptable exit codes (0/1/2) |
 | `convert` | Convert a memory timing between cycles and nanoseconds |
 | `decode-strap` | Decode a pasted memory strap register set (no ROM needed) |

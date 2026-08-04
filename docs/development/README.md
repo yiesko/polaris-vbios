@@ -26,6 +26,7 @@ src/
     extract.rs        'extract' handler
     disasm.rs         'disasm' handler
     patch.rs          'patch' handler
+    transplant.rs     'transplant' handler (PCI ROM image swapping)
   compare.rs          side-by-side comparison between two ROMs
   compare_all/        matrix comparison between 3+ ROMs
     mod.rs            driver
