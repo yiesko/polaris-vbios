@@ -1,0 +1,19 @@
+exit=0
+[
+  {
+    "file": "AMD.RX570.4096.170424.rom",
+    "vendor": "AMD/ATI (reference board)",
+    "family": "RX 570/580 (Polaris 20)",
+    "vram_size_mb": 4096,
+    "memory_types": [
+      "GDDR5"
+    ],
+    "memory_vendors": [
+      "Samsung"
+    ],
+    "boost_sclk_mhz": 1244.0,
+    "boost_mclk_mhz": 1750.0,
+    "tdp_w": 120,
+    "warnings": []
+  }
+]

@@ -169,10 +169,8 @@ pub fn validate(rom: &ParsedRom) -> Vec<String> {
         // die_for_device_id returns "Polaris 10 (67DF)"; compare only
         // the family part, which bootup_asic_family also normalizes to.
         let die_cmp = die_family
-            .split_whitespace()
-            .take(2)
-            .collect::<Vec<_>>()
-            .join(" ");
+            .find('(')
+            .map_or(die_family, |i| die_family[..i].trim());
         if boot_family != die_cmp {
             w.push(format!(
                 "the BIOS bootup message names the ASIC as \"{boot_family}\", but device ID \

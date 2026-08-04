@@ -120,9 +120,9 @@ pub fn run(cmd: Command) -> ExitCode {
             import_vram,
             vram_size_mb,
             i_understand_strap_mismatch,
-        } => patch::run(
-            &rom,
-            &out,
+        } => patch::run(&patch::PatchOpts {
+            rom,
+            out,
             dry_run,
             force,
             fix_checksum,
@@ -139,7 +139,7 @@ pub fn run(cmd: Command) -> ExitCode {
             import_vram,
             vram_size_mb,
             i_understand_strap_mismatch,
-        ),
+        }),
         Command::ListSections | Command::Completions { .. } | Command::Man => unreachable!(),
     }
 }
@@ -224,12 +224,16 @@ pub fn parse_rom_or_exit(path: &Path) -> Result<ParsedRom, ExitCode> {
     }
 }
 
+fn strip_hex_prefix(s: &str) -> &str {
+    let s = s.trim();
+    s.strip_prefix("0x")
+        .or_else(|| s.strip_prefix("0X"))
+        .unwrap_or(s)
+}
+
 pub fn parse_num<T: std::str::FromStr>(s: &str, what: &str) -> Result<T, String> {
     let s = s.trim();
-    let digits = s
-        .strip_prefix("0x")
-        .or_else(|| s.strip_prefix("0X"))
-        .unwrap_or(s);
+    let digits = strip_hex_prefix(s);
     digits
         .parse::<T>()
         .map_err(|_| format!("cannot parse '{s}' as {what}"))
@@ -240,10 +244,7 @@ pub fn parse_hex_bytes(token: &str, what: &str) -> Result<Vec<u8>, String> {
         .split(|c: char| c == ',' || c.is_whitespace())
         .filter(|t| !t.is_empty())
         .map(|t| {
-            let digits = t
-                .strip_prefix("0x")
-                .or_else(|| t.strip_prefix("0X"))
-                .unwrap_or(t);
+            let digits = strip_hex_prefix(t);
             u8::from_str_radix(digits, 16)
                 .map_err(|_| format!("cannot parse '{t}' as a hex byte in {what}"))
         })
@@ -252,10 +253,7 @@ pub fn parse_hex_bytes(token: &str, what: &str) -> Result<Vec<u8>, String> {
 
 pub fn parse_u32_hex(s: &str, what: &str) -> Result<u32, String> {
     let s = s.trim();
-    let digits = s
-        .strip_prefix("0x")
-        .or_else(|| s.strip_prefix("0X"))
-        .unwrap_or(s);
+    let digits = strip_hex_prefix(s);
     u32::from_str_radix(digits, 16)
         .map_err(|_| format!("cannot parse '{s}' as a hex value for {what}"))
 }

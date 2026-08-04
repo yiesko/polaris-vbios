@@ -91,6 +91,8 @@ pub(super) fn compare_smu(a: &ParsedRom, b: &ParsedRom, pal: &Palette, diff_only
                     (None, Some(_)) => {
                         t.note(&format!("  FCW range {i} present only in {}", b.file_name));
                     }
+                    // invariant: i < max(x.len(), y.len()) guarantees Some(_) in at
+                    // least one of the two, so (None, None) is unreachable
                     (None, None) => unreachable!(),
                 }
             }
@@ -144,6 +146,8 @@ pub(super) fn compare_power(
                     (None, Some(_)) => {
                         t.note(&format!("  source {i} present only in {}", b.file_name));
                     }
+                    // invariant: i < max(x.len(), y.len()) guarantees Some(_) in at
+                    // least one of the two, so (None, None) is unreachable
                     (None, None) => unreachable!(),
                 }
             }
@@ -292,6 +296,8 @@ pub(super) fn compare_profiling(
                     (None, Some(_)) => {
                         t.note(&format!("  TDC DPM{i} present only in {}", b.file_name));
                     }
+                    // invariant: i < max(x.len(), y.len()) guarantees Some(_) in at
+                    // least one of the two, so (None, None) is unreachable
                     (None, None) => unreachable!(),
                 }
             }
@@ -348,8 +354,10 @@ pub(super) fn compare_ss(a: &ParsedRom, b: &ParsedRom, pal: &Palette, diff_only:
                         t.note(&format!("  SS entry {i} present only in {}", a.file_name));
                     }
                     (None, Some(_)) => {
-                        t.note(&format!("  SS entry {i} present only in {}", b.file_name));
+                        t.note(&format!("  entry {i} present only in {}", b.file_name));
                     }
+                    // invariant: i < max(x.len(), y.len()) guarantees Some(_) in at
+                    // least one of the two, so (None, None) is unreachable
                     (None, None) => unreachable!(),
                 }
             }
@@ -411,8 +419,10 @@ pub(super) fn compare_vesa(a: &ParsedRom, b: &ParsedRom, pal: &Palette, diff_onl
                         t.note(&format!("  VESA mode {i} present only in {}", a.file_name));
                     }
                     (None, Some(_)) => {
-                        t.note(&format!("  VESA mode {i} present only in {}", b.file_name));
+                        t.note(&format!("  mode {i} present only in {}", b.file_name));
                     }
+                    // invariant: i < max(x.len(), y.len()) guarantees Some(_) in at
+                    // least one of the two, so (None, None) is unreachable
                     (None, None) => unreachable!(),
                 }
             }
@@ -495,8 +505,10 @@ pub(super) fn compare_i2c(a: &ParsedRom, b: &ParsedRom, pal: &Palette, diff_only
                         t.note(&format!("  I2C line {i} present only in {}", a.file_name));
                     }
                     (None, Some(_)) => {
-                        t.note(&format!("  I2C line {i} present only in {}", b.file_name));
+                        t.note(&format!("  line {i} present only in {}", b.file_name));
                     }
+                    // invariant: i < max(x.len(), y.len()) guarantees Some(_) in at
+                    // least one of the two, so (None, None) is unreachable
                     (None, None) => unreachable!(),
                 }
             }

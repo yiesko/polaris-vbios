@@ -30,6 +30,21 @@ use anyhow::{Context, Result};
 use reader::Reader;
 use types::ParsedRom;
 
+fn parse_optional<T>(
+    r: &Reader<'_>,
+    offset: usize,
+    label: &str,
+    parse_fn: fn(&Reader<'_>, usize) -> Result<T>,
+) -> Result<Option<T>> {
+    if offset != 0 {
+        Ok(Some(parse_fn(r, offset).with_context(|| {
+            format!("failed to parse {label} table")
+        })?))
+    } else {
+        Ok(None)
+    }
+}
+
 pub fn parse_rom(path: &Path) -> Result<ParsedRom> {
     let data =
         fs::read(path).with_context(|| format!("could not read file '{}'", path.display()))?;
@@ -111,58 +126,24 @@ pub fn parse_bytes(data: &[u8], file_name: &str) -> Result<ParsedRom> {
             objects: Vec::new(),
         }
     };
-    let asic = if asic_off != 0 {
-        Some(asic::parse_asic_info(&r, asic_off).context("failed to parse GFX_Info table")?)
-    } else {
-        None
-    };
-    let smu = if smu_off != 0 {
-        Some(smu::parse_smu_info(&r, smu_off).context("failed to parse SMU_Info table")?)
-    } else {
-        None
-    };
-    let power_source = if pwr_off != 0 {
-        Some(
-            power_source::parse_power_source_info(&r, pwr_off)
-                .context("failed to parse PowerSourceInfo table")?,
-        )
-    } else {
-        None
-    };
-    let gpio_pin_lut = if gpio_off != 0 {
-        Some(gpio::parse_gpio_pin_lut(&r, gpio_off).context("failed to parse GPIO_Pin_LUT table")?)
-    } else {
-        None
-    };
-    let profiling = if prof_off != 0 {
-        Some(
-            profiling::parse_profiling_info(&r, prof_off)
-                .context("failed to parse ASIC_ProfilingInfo table")?,
-        )
-    } else {
-        None
-    };
-    let ss = if ss_off != 0 {
-        Some(ss::parse_ss_info(&r, ss_off).context("failed to parse ASIC_InternalSS_Info table")?)
-    } else {
-        None
-    };
-    let vesa = if vesa_off != 0 {
-        Some(
-            vesa::parse_vesa_timing(&r, vesa_off)
-                .context("failed to parse StandardVESA_Timing table")?,
-        )
-    } else {
-        None
-    };
-    let i2c = if i2c_off != 0 {
-        Some(
-            gpio_i2c::parse_gpio_i2c_info(&r, i2c_off)
-                .context("failed to parse GPIO_I2C_Info table")?,
-        )
-    } else {
-        None
-    };
+    let asic = parse_optional(&r, asic_off, "GFX_Info", asic::parse_asic_info)?;
+    let smu = parse_optional(&r, smu_off, "SMU_Info", smu::parse_smu_info)?;
+    let power_source = parse_optional(
+        &r,
+        pwr_off,
+        "PowerSourceInfo",
+        power_source::parse_power_source_info,
+    )?;
+    let gpio_pin_lut = parse_optional(&r, gpio_off, "GPIO_Pin_LUT", gpio::parse_gpio_pin_lut)?;
+    let profiling = parse_optional(
+        &r,
+        prof_off,
+        "ASIC_ProfilingInfo",
+        profiling::parse_profiling_info,
+    )?;
+    let ss = parse_optional(&r, ss_off, "ASIC_InternalSS_Info", ss::parse_ss_info)?;
+    let vesa = parse_optional(&r, vesa_off, "StandardVESA_Timing", vesa::parse_vesa_timing)?;
+    let i2c = parse_optional(&r, i2c_off, "GPIO_I2C_Info", gpio_i2c::parse_gpio_i2c_info)?;
 
     let file_name = file_name.to_string();
 

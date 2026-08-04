@@ -41,7 +41,6 @@ pub fn run(rom_path: &Path, image_sel: &str, out_dir: &Path, json: bool) -> Exit
         return ExitCode::from(cmd::EXIT_ERROR);
     }
 
-    let out_dir: &Path = out_dir;
     if json {
         match serde_json::to_string_pretty(&selected) {
             Ok(s) => {

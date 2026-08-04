@@ -93,42 +93,52 @@ fn family_label(rom: &rom::types::ParsedRom) -> String {
     }
 }
 
-fn identify_json(rom: &rom::types::ParsedRom) -> IdentifyJson {
-    let total_mb: u32 = rom
+struct IdentifyData {
+    vendor: String,
+    family: String,
+    vram_size_mb: u32,
+    memory_types: Vec<String>,
+    memory_vendors: Vec<String>,
+    boost_sclk_mhz: f64,
+    boost_mclk_mhz: f64,
+    tdp_w: u16,
+}
+
+fn extract_identify_data(rom: &rom::types::ParsedRom) -> IdentifyData {
+    let vram_size_mb: u32 = rom
         .vram
         .modules
         .iter()
         .map(|m| m.memory_size_mb as u32)
         .max()
         .unwrap_or(0);
-    let mut mem_types: Vec<String> = rom
+    let mut memory_types: Vec<String> = rom
         .vram
         .modules
         .iter()
         .map(|m| m.memory_type_name.clone())
         .collect();
-    mem_types.sort();
-    mem_types.dedup();
-    let mut mem_vendors: Vec<String> = rom
+    memory_types.sort();
+    memory_types.dedup();
+    let mut memory_vendors: Vec<String> = rom
         .vram
         .modules
         .iter()
         .filter_map(|m| guess_memory_vendor(&m.part_number))
         .map(str::to_string)
         .collect();
-    mem_vendors.sort();
-    mem_vendors.dedup();
-    IdentifyJson {
-        file: rom.file_name.clone(),
+    memory_vendors.sort();
+    memory_vendors.dedup();
+    IdentifyData {
         vendor: rom
             .header
             .subsystem_vendor_name
             .clone()
             .unwrap_or_else(|| format!("0x{:04X}", rom.header.subsystem_vendor_id)),
         family: family_label(rom),
-        vram_size_mb: total_mb,
-        memory_types: mem_types,
-        memory_vendors: mem_vendors,
+        vram_size_mb,
+        memory_types,
+        memory_vendors,
         boost_sclk_mhz: rom
             .powerplay
             .sclk_table
@@ -147,79 +157,42 @@ fn identify_json(rom: &rom::types::ParsedRom) -> IdentifyJson {
             .as_ref()
             .map(|p| p.tdp_w)
             .unwrap_or(0),
+    }
+}
+
+fn identify_json(rom: &rom::types::ParsedRom) -> IdentifyJson {
+    let d = extract_identify_data(rom);
+    IdentifyJson {
+        file: rom.file_name.clone(),
+        vendor: d.vendor,
+        family: d.family,
+        vram_size_mb: d.vram_size_mb,
+        memory_types: d.memory_types,
+        memory_vendors: d.memory_vendors,
+        boost_sclk_mhz: d.boost_sclk_mhz,
+        boost_mclk_mhz: d.boost_mclk_mhz,
+        tdp_w: d.tdp_w,
         warnings: rom.warnings.clone(),
     }
 }
 
 fn identify_line(rom: &rom::types::ParsedRom, pal: &Palette) -> String {
-    let family = family_label(rom);
-    let vendor = rom
-        .header
-        .subsystem_vendor_name
-        .clone()
-        .unwrap_or_else(|| format!("0x{:04X}", rom.header.subsystem_vendor_id));
+    let d = extract_identify_data(rom);
 
-    let total_mb: u32 = rom
-        .vram
-        .modules
-        .iter()
-        .map(|m| m.memory_size_mb as u32)
-        .max()
-        .unwrap_or(0);
-    let mem_types: Vec<&str> = {
-        let mut v: Vec<&str> = rom
-            .vram
-            .modules
-            .iter()
-            .map(|m| m.memory_type_name.as_str())
-            .collect();
-        v.sort();
-        v.dedup();
-        v
-    };
-    let mem_vendors: Vec<&str> = {
-        let mut v: Vec<&str> = rom
-            .vram
-            .modules
-            .iter()
-            .filter_map(|m| guess_memory_vendor(&m.part_number))
-            .collect();
-        v.sort();
-        v.dedup();
-        v
-    };
-    let vram_str = if total_mb > 0 {
+    let vram_str = if d.vram_size_mb > 0 {
         format!(
-            "{total_mb}MB {}{}",
-            mem_types.join("/"),
-            if mem_vendors.is_empty() {
+            "{}MB {}{}",
+            d.vram_size_mb,
+            d.memory_types.join("/"),
+            if d.memory_vendors.is_empty() {
                 String::new()
             } else {
-                format!(" ({})", mem_vendors.join("+"))
+                format!(" ({})", d.memory_vendors.join("+"))
             }
         )
     } else {
         "VRAM: ?".to_string()
     };
-
-    let boost_sclk = rom
-        .powerplay
-        .sclk_table
-        .last()
-        .map(|e| e.sclk_mhz)
-        .unwrap_or(0.0);
-    let boost_mclk = rom
-        .powerplay
-        .mclk_table
-        .last()
-        .map(|e| e.mclk_mhz)
-        .unwrap_or(0.0);
-    let tdp = rom
-        .powerplay
-        .powertune
-        .as_ref()
-        .map(|p| p.tdp_w)
-        .unwrap_or(0);
 
     let status = if rom.warnings.is_empty() {
         pal.good("✓")
@@ -239,9 +212,13 @@ fn identify_line(rom: &rom::types::ParsedRom, pal: &Palette) -> String {
     };
 
     format!(
-        "{} [{}] {family:<20} {vram_str:<28} boost {boost_sclk:.0}/{boost_mclk:.0}MHz  TDP {tdp}W{bootup_col}  {status}",
+        "{} [{}] {:<20} {vram_str:<28} boost {:.0}/{:.0}MHz  TDP {}W{bootup_col}  {status}",
         file_column(&rom.file_name, pal),
-        vendor,
+        d.vendor,
+        d.family,
+        d.boost_sclk_mhz,
+        d.boost_mclk_mhz,
+        d.tdp_w,
     )
 }
 

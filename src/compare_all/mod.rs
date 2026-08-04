@@ -4,7 +4,6 @@ pub mod header;
 pub mod memory;
 pub mod power;
 
-use crate::compare_util;
 use crate::render::color::{Palette, fit};
 use crate::render::sections::Section;
 use crate::rom::types::ParsedRom;
@@ -87,12 +86,17 @@ impl<'a> Matrix<'a> {
     }
 
     fn note(&mut self, s: &str) -> &mut Self {
-        compare_util::note_push(&mut self.buf, &mut self.any_row, s);
+        self.any_row = true;
+        self.buf.push_str(s);
+        self.buf.push('\n');
         self
     }
 
-    fn finish(self, empty_message: &str) -> String {
-        compare_util::finish_buf(self.buf, self.any_row, empty_message)
+    fn finish(mut self, empty_message: &str) -> String {
+        if !self.any_row {
+            self.buf.push_str(&format!("  {empty_message}\n"));
+        }
+        self.buf
     }
 }
 
@@ -120,14 +124,6 @@ pub fn render_compare_all(
 
 fn title(pal: &Palette, s: &str) -> String {
     pal.title(&format!("── {s} "))
-}
-
-/// Whether a rendered matrix reports at least one differing row - same
-/// contract as [`crate::compare::differs`] (data rows end in their
-/// `≠`/`=` marker; ANSI stripped first), used by `compare-all` to
-/// script the exit code.
-pub fn differs(content: &str) -> bool {
-    crate::compare::differs(content)
 }
 
 fn compare_all_section(

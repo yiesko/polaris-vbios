@@ -207,14 +207,6 @@ impl SafeTdp {
         }
     }
 
-    pub fn watts(self) -> u32 {
-        self.watts
-    }
-
-    pub fn die(self) -> Die {
-        self.die
-    }
-
     /// Outside the factory range but within what real OC reaches:
     /// allowed, but the caller should warn loudly.
     pub fn is_unusual(self) -> bool {

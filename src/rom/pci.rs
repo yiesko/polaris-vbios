@@ -83,11 +83,6 @@ pub fn walk_pci_images(r: &Reader) -> Result<Vec<PciImage>> {
         }
         let legacy_sig_valid = r.u8(offset)? == 0x55 && r.u8(offset + 1)? == 0xAA;
         if !legacy_sig_valid {
-            if index == 0 {
-                // the first image should always have the signature -
-                // this is already checked elsewhere before reaching here,
-                // but it does not hurt to not break if called in isolation.
-            }
             break;
         }
 

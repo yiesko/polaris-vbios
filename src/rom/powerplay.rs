@@ -3,6 +3,37 @@ use anyhow::Result;
 use super::reader::Reader;
 use super::types::*;
 
+fn subtable_vec<T>(
+    r: &Reader<'_>,
+    base: usize,
+    offset: usize,
+    label: &str,
+    parse_fn: fn(&Reader<'_>, usize) -> Result<Vec<T>>,
+) -> Result<Vec<T>> {
+    if offset != 0 {
+        parse_fn(r, base + offset)
+            .map_err(|e| anyhow::anyhow!("failed to parse {label} subtable: {e}"))
+    } else {
+        Ok(Vec::new())
+    }
+}
+
+fn subtable_opt<T>(
+    r: &Reader<'_>,
+    base: usize,
+    offset: usize,
+    label: &str,
+    parse_fn: fn(&Reader<'_>, usize) -> Result<T>,
+) -> Result<Option<T>> {
+    if offset != 0 {
+        Ok(Some(parse_fn(r, base + offset).map_err(|e| {
+            anyhow::anyhow!("failed to parse {label} subtable: {e}")
+        })?))
+    } else {
+        Ok(None)
+    }
+}
+
 fn thermal_controller_name(kind: u8) -> &'static str {
     match kind {
         0 => "None",
@@ -17,12 +48,8 @@ fn thermal_controller_name(kind: u8) -> &'static str {
 
 /// Converts a 16-bit value interpreted as a signed offset
 /// (the pattern used in the usXxxOffset fields of these tables).
-fn signed16(v: u16) -> i32 {
-    if v > 32768 {
-        v as i32 - 65536
-    } else {
-        v as i32
-    }
+pub fn signed16(v: u16) -> i32 {
+    v as i16 as i32
 }
 
 fn decode_platform_caps(caps: u32) -> Vec<String> {
@@ -379,16 +406,8 @@ pub fn parse_powerplay(r: &Reader, off: usize) -> Result<PowerPlay> {
     let pcie_off = r.u16(off + 61)? as usize;
     let gpio_off = r.u16(off + 63)? as usize;
 
-    let vddc_lut = if vddc_lut_off != 0 {
-        parse_voltage_lut(r, off + vddc_lut_off)?
-    } else {
-        Vec::new()
-    };
-    let vddgfx_lut = if vddgfx_lut_off != 0 {
-        parse_voltage_lut(r, off + vddgfx_lut_off)?
-    } else {
-        Vec::new()
-    };
+    let vddc_lut = subtable_vec(r, off, vddc_lut_off, "VDDC LUT", parse_voltage_lut)?;
+    let vddgfx_lut = subtable_vec(r, off, vddgfx_lut_off, "VDDGFX LUT", parse_voltage_lut)?;
 
     Ok(PowerPlay {
         header_fmt_rev,
@@ -400,61 +419,43 @@ pub fn parse_powerplay(r: &Reader, off: usize) -> Result<PowerPlay> {
         max_overdrive_engine_mhz: max_od_engine as f64 / 100.0,
         max_overdrive_memory_mhz: max_od_memory as f64 / 100.0,
         power_control_limit_pct: power_control_limit,
-        states: if state_arr_off != 0 {
-            parse_states(r, off + state_arr_off)?
-        } else {
-            Vec::new()
-        },
-        thermal_controller: if thermal_ctrl_off != 0 {
-            Some(parse_thermal_controller(r, off + thermal_ctrl_off)?)
-        } else {
-            None
-        },
-        sclk_table: if sclk_dep_off != 0 {
-            parse_sclk_table(r, off + sclk_dep_off)?
-        } else {
-            Vec::new()
-        },
+        states: subtable_vec(r, off, state_arr_off, "states", parse_states)?,
+        thermal_controller: subtable_opt(
+            r,
+            off,
+            thermal_ctrl_off,
+            "thermal controller",
+            parse_thermal_controller,
+        )?,
+        sclk_table: subtable_vec(r, off, sclk_dep_off, "SCLK table", parse_sclk_table)?,
         mclk_table: if mclk_dep_off != 0 {
             parse_mclk_table(r, off + mclk_dep_off, &vddc_lut)?
         } else {
             Vec::new()
         },
-        mm_table: if mm_dep_off != 0 {
-            parse_mm_table(r, off + mm_dep_off)?
-        } else {
-            Vec::new()
-        },
-        powertune: if powertune_off != 0 {
-            Some(parse_powertune(r, off + powertune_off)?)
-        } else {
-            None
-        },
-        fan_table: if fan_table_off != 0 {
-            Some(parse_fan_table(r, off + fan_table_off)?)
-        } else {
-            None
-        },
-        pcie_table: if pcie_off != 0 {
-            parse_pcie_table(r, off + pcie_off)?
-        } else {
-            Vec::new()
-        },
+        mm_table: subtable_vec(r, off, mm_dep_off, "multimedia table", parse_mm_table)?,
+        powertune: subtable_opt(r, off, powertune_off, "powertune", parse_powertune)?,
+        fan_table: subtable_opt(r, off, fan_table_off, "fan table", parse_fan_table)?,
+        pcie_table: subtable_vec(r, off, pcie_off, "PCIe table", parse_pcie_table)?,
         vrhot_sclk_dpm_index: if gpio_off != 0 {
             Some(r.u8(off + gpio_off + 1)?)
         } else {
             None
         },
-        vce_states: if vce_state_off != 0 {
-            parse_vce_state_table(r, off + vce_state_off)?
-        } else {
-            Vec::new()
-        },
-        hard_limits: if hardlimit_off != 0 {
-            parse_hard_limit_table(r, off + hardlimit_off)?
-        } else {
-            Vec::new()
-        },
+        vce_states: subtable_vec(
+            r,
+            off,
+            vce_state_off,
+            "VCE state table",
+            parse_vce_state_table,
+        )?,
+        hard_limits: subtable_vec(
+            r,
+            off,
+            hardlimit_off,
+            "hard limit table",
+            parse_hard_limit_table,
+        )?,
         vddc_lut,
         vddgfx_lut,
     })

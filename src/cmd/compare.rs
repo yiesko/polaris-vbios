@@ -136,7 +136,7 @@ pub fn run_all(
             .unwrap_or_default();
         docs.windows(2).any(|w| w[0] != w[1])
     } else {
-        compare_all::differs(&content)
+        compare::differs(&content)
     };
     if differs || had_error || !write_ok {
         ExitCode::from(cmd::EXIT_ERROR)

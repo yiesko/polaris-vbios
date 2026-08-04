@@ -3,6 +3,48 @@ use anyhow::Result;
 use super::reader::Reader;
 use super::types::{FirmwareInfo, FirmwareVramReserve};
 
+fn field_u8(
+    r: &Reader<'_>,
+    base: usize,
+    offset: usize,
+    min_size: usize,
+    struct_size: u16,
+) -> Result<u8> {
+    if struct_size as usize >= min_size {
+        r.u8(base + offset)
+    } else {
+        Ok(0)
+    }
+}
+
+fn field_u16(
+    r: &Reader<'_>,
+    base: usize,
+    offset: usize,
+    min_size: usize,
+    struct_size: u16,
+) -> Result<u16> {
+    if struct_size as usize >= min_size {
+        r.u16(base + offset)
+    } else {
+        Ok(0)
+    }
+}
+
+fn field_u32(
+    r: &Reader<'_>,
+    base: usize,
+    offset: usize,
+    min_size: usize,
+    struct_size: u16,
+) -> Result<u32> {
+    if struct_size as usize >= min_size {
+        r.u32(base + offset)
+    } else {
+        Ok(0)
+    }
+}
+
 /// ucCoolingSolution_ID (atombios.h V2_2 comment; enum
 /// atom_cooling_solution_id in the kernel's atomfirmware.h).
 fn cooling_solution_name(id: u8) -> &'static str {
@@ -27,88 +69,24 @@ pub fn parse_firmware_info(r: &Reader, off: usize) -> Result<FirmwareInfo> {
     let default_engine_clock_10khz = r.u32(off + 8)?;
     let default_memory_clock_10khz = r.u32(off + 12)?;
     let bootup_vddc_mv = r.u16(off + 46)?;
-    let bootup_vddci_mv = if struct_size >= 80 {
-        r.u16(off + 78)?
-    } else {
-        0
-    };
-    let core_ref_clock_10khz = if struct_size >= 84 {
-        r.u16(off + 82)?
-    } else {
-        0
-    };
-    let mem_ref_clock_10khz = if struct_size >= 86 {
-        r.u16(off + 84)?
-    } else {
-        0
-    };
-    let memory_module_id = if struct_size >= 89 {
-        r.u8(off + 88)?
-    } else {
-        0
-    };
-    let bootup_mvddc_mv = if struct_size >= 94 {
-        r.u16(off + 92)?
-    } else {
-        0
-    };
-    let bootup_vddgfx_mv = if struct_size >= 96 {
-        r.u16(off + 94)?
-    } else {
-        0
-    };
+    let bootup_vddci_mv = field_u16(r, off, 78, 80, struct_size)?;
+    let core_ref_clock_10khz = field_u16(r, off, 82, 84, struct_size)?;
+    let mem_ref_clock_10khz = field_u16(r, off, 84, 86, struct_size)?;
+    let memory_module_id = field_u8(r, off, 88, 89, struct_size)?;
+    let bootup_mvddc_mv = field_u16(r, off, 92, 94, struct_size)?;
+    let bootup_vddgfx_mv = field_u16(r, off, 94, 96, struct_size)?;
 
     // V2_2 extended fields (all in 10 kHz except where noted).
-    let spll_output_10khz = if struct_size >= 24 {
-        r.u32(off + 16)?
-    } else {
-        0
-    };
-    let gpull_output_10khz = if struct_size >= 24 {
-        r.u32(off + 20)?
-    } else {
-        0
-    };
-    let max_pixel_clock_pll_10khz = if struct_size >= 36 {
-        r.u32(off + 32)?
-    } else {
-        0
-    };
-    let default_disp_engine_10khz = if struct_size >= 44 {
-        r.u32(off + 40)?
-    } else {
-        0
-    };
-    let min_pixel_clock_pll_output_10khz = if struct_size >= 60 {
-        r.u32(off + 56)?
-    } else {
-        0
-    };
-    let min_pixel_clock_pll_input_10khz = if struct_size >= 78 {
-        r.u16(off + 74)?
-    } else {
-        0
-    };
-    let max_pixel_clock_pll_input_10khz = if struct_size >= 78 {
-        r.u16(off + 76)?
-    } else {
-        0
-    };
-    let uniphy_dp_mode_ext_10khz = if struct_size >= 88 {
-        r.u16(off + 86)?
-    } else {
-        0
-    };
-    let cooling_solution_id = if struct_size >= 90 {
-        r.u8(off + 89)?
-    } else {
-        0
-    };
-    let product_branding = if struct_size >= 91 {
-        r.u8(off + 90)?
-    } else {
-        0
-    };
+    let spll_output_10khz = field_u32(r, off, 16, 24, struct_size)?;
+    let gpull_output_10khz = field_u32(r, off, 20, 24, struct_size)?;
+    let max_pixel_clock_pll_10khz = field_u32(r, off, 32, 36, struct_size)?;
+    let default_disp_engine_10khz = field_u32(r, off, 40, 44, struct_size)?;
+    let min_pixel_clock_pll_output_10khz = field_u32(r, off, 56, 60, struct_size)?;
+    let min_pixel_clock_pll_input_10khz = field_u16(r, off, 74, 78, struct_size)?;
+    let max_pixel_clock_pll_input_10khz = field_u16(r, off, 76, 78, struct_size)?;
+    let uniphy_dp_mode_ext_10khz = field_u16(r, off, 86, 88, struct_size)?;
+    let cooling_solution_id = field_u8(r, off, 89, 90, struct_size)?;
+    let product_branding = field_u8(r, off, 90, 91, struct_size)?;
 
     Ok(FirmwareInfo {
         struct_size,

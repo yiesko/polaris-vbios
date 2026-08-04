@@ -135,11 +135,7 @@ fn parse_detail(r: &Reader, p: usize, mode: u8, obj_end: usize) -> Result<Voltag
                 }
                 let sclk = r.u32(q)?;
                 let voffset_raw = r.u16(q + 4)?;
-                let v_adj_offset_mv = if voffset_raw > 32768 {
-                    voffset_raw as i32 - 65536
-                } else {
-                    voffset_raw as i32
-                };
+                let v_adj_offset_mv = voffset_raw as i16 as i32;
                 let dpm_v_index = r.u8(q + 6)?;
                 let dpm_state = r.u8(q + 7)?;
                 entries.push(EvvEntry {

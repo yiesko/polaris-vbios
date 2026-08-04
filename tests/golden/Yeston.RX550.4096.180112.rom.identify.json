@@ -1,0 +1,19 @@
+exit=2
+[
+  {
+    "file": "Yeston.RX550.4096.180112.rom",
+    "vendor": "AMD/ATI (reference board)",
+    "family": "RX 550 (Polaris 12, Lexa)",
+    "vram_size_mb": 4096,
+    "memory_types": [
+      "GDDR5"
+    ],
+    "memory_vendors": [],
+    "boost_sclk_mhz": 1183.0,
+    "boost_mclk_mhz": 1500.0,
+    "tdp_w": 35,
+    "warnings": [
+      "highest VDDC LUT entry is 1100 mV, above the die maximum of 1075 mV declared in ASIC_ProfilingInfo; slots above it may be clamped by the driver."
+    ]
+  }
+]

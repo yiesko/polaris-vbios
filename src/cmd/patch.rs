@@ -5,85 +5,87 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use crate::cli::Command;
 use crate::cmd;
 use crate::rom;
 use crate::rom::patch::PatchOp;
 use crate::rom::reader::Reader;
 use crate::rom::types::ParsedRom;
 
+pub struct PatchOpts {
+    pub rom: PathBuf,
+    pub out: PathBuf,
+    pub dry_run: bool,
+    pub force: bool,
+    pub fix_checksum: bool,
+    pub set_strap: Vec<String>,
+    pub set_strap_reg: Vec<String>,
+    pub retag_strap: Vec<String>,
+    pub timing: Vec<String>,
+    pub pp_sclk: Vec<String>,
+    pub pp_mclk: Vec<String>,
+    pub pp_vddc: Vec<String>,
+    pub pp_tdp: Vec<String>,
+    pub hex: Vec<String>,
+    pub clone_ids: Option<PathBuf>,
+    pub import_vram: Option<PathBuf>,
+    pub vram_size_mb: Option<String>,
+    pub i_understand_strap_mismatch: bool,
+}
+
 /// Parses every `--set-strap`, `--set-strap-reg`, `--retag-strap`,
 /// `--timing`, `--pp-*`, `--vram-size-mb` and `--hex` argument of the
 /// patch command into ops. Reference-ROM ops (`--clone-ids`,
 /// `--import-vram`) are resolved later by [`run`] because they need
 /// file I/O.
-fn build_ops(cmd: &Command) -> Result<Vec<PatchOp>, String> {
-    let Command::Patch {
-        set_strap,
-        set_strap_reg,
-        retag_strap,
-        timing,
-        pp_sclk,
-        pp_mclk,
-        pp_vddc,
-        pp_tdp,
-        hex,
-        vram_size_mb,
-        i_understand_strap_mismatch,
-        import_vram,
-        ..
-    } = cmd
-    else {
-        unreachable!()
-    };
+fn build_ops(opts: &PatchOpts) -> Result<Vec<PatchOp>, String> {
     let mut ops = Vec::new();
     // Every --set-strap consumes exactly 3 values.
-    for g in set_strap.chunks_exact(3) {
+    for g in opts.set_strap.chunks_exact(3) {
         ops.push(PatchOp::SetStrap {
             clock_mhz: cmd::parse_num(&g[0], "clock (MHz)")?,
             reg: cmd::parse_num(&g[1], "register index")?,
             value: cmd::parse_u32_hex(&g[2], "--set-strap")?,
         });
     }
-    for g in set_strap_reg.chunks_exact(2) {
+    for g in opts.set_strap_reg.chunks_exact(2) {
         ops.push(PatchOp::SetStrapReg {
             reg_offset: cmd::parse_u32_hex(&g[0], "--set-strap-reg")?,
             value: cmd::parse_u32_hex(&g[1], "--set-strap-reg")?,
         });
     }
-    for g in retag_strap.chunks_exact(2) {
+    for g in opts.retag_strap.chunks_exact(2) {
         ops.push(PatchOp::RetagStrap {
             clock_mhz: cmd::parse_num(&g[0], "clock (MHz)")?,
             new_clock_mhz: cmd::parse_num(&g[1], "new clock (MHz)")?,
         });
     }
-    for g in timing.chunks_exact(3) {
+    for g in opts.timing.chunks_exact(3) {
         ops.push(parse_timing(&g[0], &g[1], &g[2])?);
     }
-    for g in pp_sclk.chunks_exact(2) {
+    for g in opts.pp_sclk.chunks_exact(2) {
         ops.push(PatchOp::PpSclk {
             level: cmd::parse_num(&g[0], "SCLK level")?,
             mhz: cmd::parse_num(&g[1], "clock (MHz)")?,
         });
     }
-    for g in pp_mclk.chunks_exact(2) {
+    for g in opts.pp_mclk.chunks_exact(2) {
         ops.push(PatchOp::PpMclk {
             level: cmd::parse_num(&g[0], "MCLK level")?,
             mhz: cmd::parse_num(&g[1], "clock (MHz)")?,
         });
     }
-    for g in pp_vddc.chunks_exact(2) {
+    for g in opts.pp_vddc.chunks_exact(2) {
         ops.push(PatchOp::PpVddc {
             index: cmd::parse_num(&g[0], "LUT index")?,
             mv: cmd::parse_num(&g[1], "voltage (mV)")?,
         });
     }
-    for w in pp_tdp {
+    for w in &opts.pp_tdp {
         ops.push(PatchOp::PpTdp {
             watts: cmd::parse_num(w, "TDP (W)")?,
         });
     }
-    for g in hex.chunks_exact(2) {
+    for g in opts.hex.chunks_exact(2) {
         let bytes = cmd::parse_hex_bytes(&g[1], "--hex")?;
         if bytes.is_empty() {
             return Err("--hex needs at least one byte".to_string());
@@ -96,21 +98,21 @@ fn build_ops(cmd: &Command) -> Result<Vec<PatchOp>, String> {
     // Two answers to the same question ("what size does this ROM
     // declare?") is ambiguous by nature: the import brings the donor's
     // whole calibrated table, the manual edit writes only geometry.
-    if import_vram.is_some() && vram_size_mb.is_some() {
+    if opts.import_vram.is_some() && opts.vram_size_mb.is_some() {
         return Err(
             "--import-vram and --vram-size-mb are mutually exclusive: the import brings the \
              donor's whole factory-calibrated table, the manual edit writes geometry only"
                 .to_string(),
         );
     }
-    if let Some(n) = vram_size_mb {
+    if let Some(ref n) = opts.vram_size_mb {
         let size_mb: u32 = cmd::parse_num(n, "VRAM size (MB)")?;
         if size_mb == 0 {
             return Err("--vram-size-mb must be a positive size in MB".to_string());
         }
         ops.push(PatchOp::VramSizeMb {
             size_mb,
-            understand: *i_understand_strap_mismatch,
+            understand: opts.i_understand_strap_mismatch,
         });
     }
     Ok(ops)
@@ -289,48 +291,8 @@ fn resolve_clone_ids(ref_path: &Path) -> Result<PatchOp, String> {
     })
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn run(
-    rom_path: &Path,
-    out_path: &Path,
-    dry_run: bool,
-    force: bool,
-    fix_checksum: bool,
-    set_strap: Vec<String>,
-    set_strap_reg: Vec<String>,
-    retag_strap: Vec<String>,
-    timing: Vec<String>,
-    pp_sclk: Vec<String>,
-    pp_mclk: Vec<String>,
-    pp_vddc: Vec<String>,
-    pp_tdp: Vec<String>,
-    hex: Vec<String>,
-    clone_ids: Option<PathBuf>,
-    import_vram: Option<PathBuf>,
-    vram_size_mb: Option<String>,
-    i_understand_strap_mismatch: bool,
-) -> ExitCode {
-    let cmd = Command::Patch {
-        rom: rom_path.to_path_buf(),
-        out: out_path.to_path_buf(),
-        dry_run,
-        force,
-        fix_checksum,
-        set_strap,
-        set_strap_reg,
-        retag_strap,
-        timing,
-        pp_sclk,
-        pp_mclk,
-        pp_vddc,
-        pp_tdp,
-        hex,
-        clone_ids,
-        import_vram,
-        vram_size_mb,
-        i_understand_strap_mismatch,
-    };
-    let mut ops = match build_ops(&cmd) {
+pub fn run(opts: &PatchOpts) -> ExitCode {
+    let mut ops = match build_ops(opts) {
         Ok(o) => o,
         Err(e) => {
             eprintln!("error: {e}");
@@ -339,15 +301,7 @@ pub fn run(
     };
     // Reference-ROM ops need file I/O: resolve them here, before the
     // emptiness check, so e.g. `--import-vram` alone is a valid edit.
-    let Command::Patch {
-        clone_ids,
-        import_vram,
-        ..
-    } = &cmd
-    else {
-        unreachable!()
-    };
-    if let Some(ref_path) = clone_ids {
+    if let Some(ref ref_path) = opts.clone_ids {
         match resolve_clone_ids(ref_path) {
             Ok(op) => ops.push(op),
             Err(e) => {
@@ -356,14 +310,14 @@ pub fn run(
             }
         }
     }
-    if let Some(ref_path) = import_vram {
+    if let Some(ref ref_path) = opts.import_vram {
         let data = match cmd::read_rom(ref_path) {
             Ok(d) => d,
             Err(code) => return code,
         };
         ops.push(PatchOp::ImportVram { donor: data });
     }
-    if ops.is_empty() && !fix_checksum {
+    if ops.is_empty() && !opts.fix_checksum {
         eprintln!(
             "error: nothing to do - add an edit (--set-strap, --timing, --pp-*, --hex...) \
              or --fix-checksum"
@@ -373,14 +327,14 @@ pub fn run(
 
     // Never in place (canonical paths, and same (dev, inode) so hard
     // links to the source cannot be silently overwritten either).
-    if same_file(rom_path, out_path) {
+    if same_file(&opts.rom, &opts.out) {
         eprintln!(
             "error: --out must be a different file than the source ROM (never patch in place)"
         );
         return ExitCode::from(cmd::EXIT_ERROR);
     }
 
-    let mut data = match cmd::read_rom(rom_path) {
+    let mut data = match cmd::read_rom(&opts.rom) {
         Ok(d) => d,
         Err(code) => return code,
     };
@@ -388,15 +342,15 @@ pub fn run(
     // Input checksum: refuse to patch a corrupt image unless repairing.
     // The parsed image is kept for the power-sanity guardrails below
     // (die envelope + the ROM's own PowerPlay ceilings).
-    let parsed = match rom::parse_rom(rom_path) {
+    let parsed = match rom::parse_rom(&opts.rom) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("error reading '{}': {e:#}", rom_path.display());
+            eprintln!("error reading '{}': {e:#}", opts.rom.display());
             return ExitCode::from(cmd::EXIT_ERROR);
         }
     };
     let input_valid = parsed.header.checksum_valid;
-    if !input_valid && !fix_checksum {
+    if !input_valid && !opts.fix_checksum {
         eprintln!(
             "error: input ROM checksum is invalid - refusing to patch a corrupt image \
              (run with --fix-checksum to repair it)"
@@ -407,7 +361,7 @@ pub fn run(
     // Power-sanity guardrails for --pp-tdp: reject values that make no
     // physical sense for the die, and values above the ROM's declared
     // power ceilings - unless --force says the user knows better.
-    if let Err(code) = guard_power(&ops, &parsed, force, dry_run) {
+    if let Err(code) = guard_power(&ops, &parsed, opts.force, opts.dry_run) {
         return code;
     }
 
@@ -445,7 +399,7 @@ pub fn run(
     };
 
     // Report.
-    println!("patch plan for '{}':", rom_path.display());
+    println!("patch plan for '{}':", opts.rom.display());
     if let Some(d) = &pre_fix {
         println!(
             "  0x{:06X}  {} -> {}  ({})",
@@ -519,22 +473,22 @@ pub fn run(
         }
     }
 
-    if dry_run {
+    if opts.dry_run {
         println!("dry run - nothing written");
         return ExitCode::from(cmd::EXIT_OK);
     }
 
-    match write_atomic(out_path, &patched) {
+    match write_atomic(&opts.out, &patched) {
         Ok(()) => {
             println!(
                 "wrote {} ({} bytes, checksum recomputed)",
-                out_path.display(),
+                opts.out.display(),
                 patched.len()
             );
             ExitCode::from(cmd::EXIT_OK)
         }
         Err(e) => {
-            eprintln!("error writing '{}': {e}", out_path.display());
+            eprintln!("error writing '{}': {e}", opts.out.display());
             ExitCode::from(cmd::EXIT_ERROR)
         }
     }

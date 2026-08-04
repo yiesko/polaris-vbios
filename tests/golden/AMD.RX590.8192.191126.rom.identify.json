@@ -1,0 +1,19 @@
+exit=0
+[
+  {
+    "file": "AMD.RX590.8192.191126.rom",
+    "vendor": "AMD/ATI (reference board)",
+    "family": "RX 590 (Polaris 30)",
+    "vram_size_mb": 8192,
+    "memory_types": [
+      "GDDR5"
+    ],
+    "memory_vendors": [
+      "Samsung"
+    ],
+    "boost_sclk_mhz": 1500.0,
+    "boost_mclk_mhz": 2000.0,
+    "tdp_w": 185,
+    "warnings": []
+  }
+]

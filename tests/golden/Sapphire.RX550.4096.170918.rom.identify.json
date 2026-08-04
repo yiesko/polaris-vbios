@@ -1,0 +1,17 @@
+exit=0
+[
+  {
+    "file": "Sapphire.RX550.4096.170918.rom",
+    "vendor": "0x1DA2",
+    "family": "RX 550 (Polaris 12, Lexa)",
+    "vram_size_mb": 4096,
+    "memory_types": [
+      "GDDR5"
+    ],
+    "memory_vendors": [],
+    "boost_sclk_mhz": 1071.0,
+    "boost_mclk_mhz": 1500.0,
+    "tdp_w": 35,
+    "warnings": []
+  }
+]

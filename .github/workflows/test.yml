@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    name: test (fmt, lint, unit+integration)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+
+      # The sample collection is committed as samples/samples.7z and
+      # expands via 7z+tar; install the decompressor so the 
+      # sample-backed tests actually run.
+      - name: Install 7z (sample collection)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y p7zip-full
+
+      - name: Format check
+        run: cargo fmt --check
+
+      - name: Clippy (warnings denied)
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test
+
+      - name: Confirm samples fully exercised
+        run: |
+          test -f target/sample_roms/ROMs/__done__ \
+            || (echo "sample extraction did not complete; CI has 7z so it must" && exit 1)
+          ls target/sample_roms/ROMs/*.rom | wc -l
