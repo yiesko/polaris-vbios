@@ -21,6 +21,3 @@ polaris-vbios tui ~/GPU/RX570_original.rom ~/GPU/Gigabyte.RX580.8192.1737850666.
 | `y` | Copy current section to system clipboard via OSC52 |
 | `?` | Show help |
 | `q` / `Esc` | Quit |
-
-The clipboard (`y`) works in kitty, WezTerm, iTerm2, Windows Terminal,
-Alacritty - no extra software needed.

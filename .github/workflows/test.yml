@@ -7,17 +7,30 @@ on:
 
 jobs:
   test:
-    name: test (fmt, lint, unit+integration)
+    name: Rust ${{ matrix.rust }}
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        rust:
+          - "1.88.0"
+          - stable
+
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ matrix.rust }}
           components: clippy,rustfmt
 
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
       # The sample collection is committed as samples/samples.7z and
-      # expands via 7z+tar; install the decompressor so the 
+      # expands via 7z+tar; install the decompressor so the
       # sample-backed tests actually run.
       - name: Install 7z (sample collection)
         run: |
@@ -25,13 +38,18 @@ jobs:
           sudo apt-get install -y p7zip-full
 
       - name: Format check
+        if: matrix.rust == 'stable'
         run: cargo fmt --check
 
       - name: Clippy (warnings denied)
+        if: matrix.rust == 'stable'
         run: cargo clippy --all-targets -- -D warnings
 
+      - name: Build
+        run: cargo build --locked
+
       - name: Tests
-        run: cargo test
+        run: cargo test --locked
 
       - name: Confirm samples fully exercised
         run: |

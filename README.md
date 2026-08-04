@@ -1,4 +1,11 @@
-# Overview
+# Polaris VBIOS CLI
+
+![Project Status](https://img.shields.io/badge/status-active-success)
+![CI](https://github.com/yiesko/polaris-vbios/actions/workflows/test.yml/badge.svg)
+![MSRV](https://img.shields.io/badge/MSRV-1.88-orange)
+![GitHub Tag](https://img.shields.io/github/v/tag/yiesko/polaris-vbios)
+![GitHub Downloads (all assets)](https://img.shields.io/github/downloads/yiesko/polaris-vbios/total)
+![License](https://img.shields.io/badge/license-GPL--3.0-blue)
 
 Reader, dumper and comparator for **AMD Polaris** VBIOS (RX 4xx / RX 5xx -
 Polaris10/Polaris11/Polaris20/Polaris21) in Rust. Reads the ROM directly
@@ -16,6 +23,11 @@ VBIOS images are inconsistent, some fields are heuristic, and edge cases
 exist outside any sampled set. **Nothing reads or writes a GPU** - this
 is a file tool only.
 
+<p align="center">
+  <img src="assets/1.png" alt="Overview" width="48%">
+  <img src="assets/2.png" alt="TUI" width="48%">
+</p>
+
 ## Documentation
 
 Per-topic docs live in `docs/`:
@@ -26,8 +38,12 @@ Per-topic docs live in `docs/`:
 | [docs/compare/README.md](docs/compare/README.md) | `compare`, `compare-all`, `diff-disasm`, scriptable verdicts |
 | [docs/patch/README.md](docs/patch/README.md) | `patch` - guards, `--timing`, `--force`, identity/VRAM editing |
 | [docs/transplant/README.md](docs/transplant/README.md) | `transplant` - PCI ROM image swapping between VBIOS files |
+| [docs/identify/README.md](docs/identify/README.md) | `identify` - one-line summary per ROM |
+| [docs/extract/README.md](docs/extract/README.md) | `extract` - dump PCI ROM images to files |
+| [docs/disasm/README.md](docs/disasm/README.md) | `disasm` - ATOM command table disassembly |
 | [docs/tui/README.md](docs/tui/README.md) | Interactive `tui` mode + keybindings |
 | [docs/reference/README.md](docs/reference/README.md) | `check`/`convert`/`decode-strap`, `--reg-names`, validation, limitations |
+| [docs/utility/README.md](docs/utility/README.md) | `list-sections`/`completions`/`man`/`help` - utility commands |
 | [docs/development/README.md](docs/development/README.md) | Parsing sources, code structure, license, credits |
 
 ## Patch warning
@@ -47,7 +63,7 @@ You are solely responsible for what you flash.
 
 ## Build
 
-Requires Rust 1.95+:
+Requires Rust 1.88+:
 
 ```sh
 cargo build --release
@@ -89,7 +105,9 @@ polaris-vbios tui ~/GPU/RX570_original.rom ~/GPU/Gigabyte.RX580.8192.rom
 | `check` | Run every validation rule, scriptable exit codes (0/1/2) |
 | `convert` | Convert a memory timing between cycles and nanoseconds |
 | `decode-strap` | Decode a pasted memory strap register set (no ROM needed) |
+| `extract` | Extract PCI ROM images (Legacy/EFI) to files or JSON metadata |
 | `diff-disasm` | Diff of the ATOM bytecode disassembly of two ROMs |
+| `disasm` | Disassemble ATOM command table bytecode |
 | `tui` | Interactive terminal UI |
 | `list-sections` | List all available section keys |
 | `completions` | Print a shell completion script (bash, elvish, fish, powershell, zsh) |
